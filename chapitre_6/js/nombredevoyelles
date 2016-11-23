@@ -1,0 +1,27 @@
+  var mot = prompt('Tapez un mot');
+
+function compterVoyelle(){
+
+  var voyelle= 0;
+  var cons;
+  
+ for(i=0; i<mot.length; i++) {
+    
+    if ((mot[i] === 'a') || (mot[i] === 'i') || (mot[i] === 'e') || (mot[i] === 'O')){
+        
+        ++voyelle
+        i++
+      
+    }
+        }
+        
+        cons = (mot.length-1) - voyelle;
+        
+        console.log('Le mot ' + mot + ' possède ' + voyelle + ' voyelles et ' + cons +' consonnes.');
+    
+  
+    
+}
+        
+
+compterVoyelle();
