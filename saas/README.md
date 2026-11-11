@@ -11,6 +11,8 @@ MVP d'un SaaS où quatre agents IA travaillent sur une boutique e-commerce. Le c
 
 Le client n'a jamais accès à Claude Code : il utilise cette interface, et les agents appellent l'API Claude côté serveur.
 
+> **Reprise du projet** : `REPRISE.md` dit où en est le travail, ce qui a été vérifié et quoi faire en premier. `DEMO.md` donne le déroulé de la démonstration.
+
 ## Lancer en local
 
 ```bash
@@ -84,6 +86,8 @@ npm run typecheck
 ```
 
 `tests/sdk-integration.test.ts` fait tourner le vrai SDK Claude et la vraie boucle d'agent contre un faux serveur local (`tests/fake-claude.ts`) qui parle le même protocole de streaming que l'API. Il vérifie la requête réellement envoyée et la lecture du flux, pas la qualité des réponses du modèle.
+
+Deux parcours complets dans un navigateur sont dans `tests/e2e/` (mode d'emploi en tête de chaque fichier) : le mode démo, et le chemin hors démo contre le faux serveur.
 
 Pour essayer l'interface hors mode démo sans dépenser de crédit :
 
