@@ -1,0 +1,183 @@
+import { randomUUID } from "node:crypto";
+import type { AgentId, ChatRequest, StreamEvent } from "../types";
+import { executeTool, toolLabel } from "./tools";
+
+// Demo mode: a scripted run per agent, used when no API key is configured.
+// The steps go through the real tools, so deliverables, validation and the
+// approval flow behave exactly as with Claude. The texts are written for the
+// demo shop; the interface shows a « Mode démo » badge while this is active.
+
+type Step = { say: string } | { tool: string; input: Record<string, unknown> };
+
+const SCRIPTS: Record<AgentId, Step[]> = {
+  webmaster: [
+    { say: "Je lis votre catalogue pour repérer la fiche qui vous fait perdre le plus de ventes." },
+    { tool: "list_products", input: {} },
+    { tool: "get_product", input: { product_id: "p1" } },
+    {
+      tool: "propose_product_update",
+      input: {
+        product_id: "p1",
+        reason: "La fiche actuelle tient en une ligne : un acheteur ne sait ni à quoi sert le produit, ni comment l'utiliser.",
+        title: "Huile de nigelle pure pressée à froid – flacon 100 ml",
+        description:
+          "Une huile de nigelle 100 % pure, obtenue par première pression à froid des graines, sans additif ni parfum ajouté.\n\nSa couleur ambrée et son parfum épicé, légèrement poivré, sont les signes d'une huile non raffinée. On l'utilise depuis des générations dans les rituels de soin : quelques gouttes sur le visage le soir, en massage sur le cuir chevelu avant le shampoing, ou mélangée à votre huile habituelle.\n\n• Flacon en verre teinté de 100 ml, qui protège l'huile de la lumière\n• Bouchon doseur pour ne pas gaspiller\n• À conserver au frais, à l'abri du soleil\n\nÀ compléter de votre côté : le pays d'origine des graines et la date de pression, deux informations qui rassurent beaucoup sur ce type de produit.",
+        tags: ["huile de nigelle", "habba sawda", "pressée à froid", "soin visage", "soin cheveux", "100 ml"],
+        image_alt: "Flacon en verre teinté d'huile de nigelle pure 100 ml",
+      },
+    },
+    {
+      say: "J'ai préparé une nouvelle version de la fiche **Huile de nigelle**, la plus pauvre du catalogue (5 mots de description).\n\n- **Titre** précis : type de produit, méthode de pression, format\n- **Description** qui répond aux trois questions de l'acheteur : ce que c'est, comment l'utiliser, comment le conserver\n- **6 tags** et un **texte alternatif** pour l'image\n\nLa proposition vous attend à droite : validez-la pour l'appliquer à la boutique. Il me manque l'origine des graines, à compléter de votre côté. Prochaine étape conseillée : les fiches Savon d'Alep et Ghassoul, presque aussi courtes.",
+    },
+  ],
+  seo: [
+    { say: "Je lance un audit complet du catalogue pour savoir où agir en premier." },
+    { tool: "audit_catalog", input: {} },
+    {
+      tool: "propose_product_update",
+      input: {
+        product_id: "p1",
+        reason: "Aucune balise title ni meta description : Google compose lui-même l'extrait, rarement à votre avantage.",
+        seo_title: "Huile de nigelle pure pressée à froid 100 ml | Maison Nour",
+        seo_description:
+          "Huile de nigelle 100 % pure, première pression à froid, sans additif. Flacon en verre teinté de 100 ml avec doseur. Expédition soignée par Maison Nour.",
+      },
+    },
+    {
+      tool: "propose_product_update",
+      input: {
+        product_id: "p3",
+        reason: "Le produit le plus cher du catalogue n'a aucune balise SEO : c'est la page où un clic vaut le plus.",
+        seo_title: "Miel de sidr du Yémen 250 g – miel rare | Maison Nour",
+        seo_description:
+          "Miel de sidr du Yémen en pot de 250 g : un miel rare à la texture dense et au goût de caramel. Idéal à offrir ou à savourer nature. Livraison soignée.",
+      },
+    },
+    {
+      say: "L'audit est prêt : votre catalogue obtient un score moyen faible, tiré vers le bas par **7 fiches sur 8 sans meta description**. Seule l'huile d'argan est correctement optimisée, elle peut servir de modèle.\n\nJ'ai préparé les balises title et meta description des deux pages prioritaires :\n\n- **Huile de nigelle**, la fiche la plus vide\n- **Miel de sidr**, votre produit le plus cher\n\nElles attendent votre validation à droite. Je n'ai pas accès aux volumes de recherche : ces balises sont construites sur l'intention d'achat. Prochaine étape : je traite les 5 fiches restantes si vous me dites « continue ».",
+    },
+  ],
+  email: [
+    { say: "Je regarde vos produits pour choisir ceux à mettre en avant, puis j'écris la séquence." },
+    { tool: "list_products", input: {} },
+    {
+      tool: "create_email",
+      input: {
+        name: "Bienvenue 1 — Merci et notre histoire",
+        sequence_name: "Séquence de bienvenue",
+        send_timing: "J+0, dès l'inscription",
+        subject: "Bienvenue chez Maison Nour",
+        preheader: "Ce que vous trouverez chez nous, et pourquoi nous l'avons choisi.",
+        headline: "Ravis de vous compter parmi nous",
+        paragraphs: [
+          "Merci de nous avoir rejoints. Maison Nour, c'est une petite sélection de soins naturels et de produits d'épicerie fine que nous utilisons nous-mêmes au quotidien.",
+          "Pas de catalogue à rallonge : chaque produit est là parce qu'il est simple, bien fait, et qu'on sait d'où il vient.",
+          "Dans les prochains jours, nous vous montrerons comment nos clients les utilisent. En attendant, voici par où beaucoup commencent.",
+        ],
+        cta_label: "Découvrir la sélection",
+        featured_product_ids: ["p7", "p2"],
+        ps: "Une question sur un produit ? Répondez simplement à cet email, nous lisons tout.",
+      },
+    },
+    {
+      tool: "create_email",
+      input: {
+        name: "Bienvenue 2 — Le rituel hammam à la maison",
+        sequence_name: "Séquence de bienvenue",
+        send_timing: "J+2",
+        subject: "Le hammam à la maison, en 3 gestes",
+        preheader: "Savon noir, gant kessa, ghassoul : dans quel ordre et pourquoi.",
+        headline: "Le rituel hammam, pas à pas",
+        paragraphs: [
+          "On nous demande souvent par où commencer. Notre réponse tient en trois gestes, à faire une fois par semaine.",
+          "D'abord le savon noir sur peau humide, qu'on laisse poser quelques minutes. Ensuite le gant kessa, en mouvements longs. Enfin le ghassoul en masque, qu'on rince à l'eau tiède.",
+          "Nous avons réuni les trois dans un coffret, pour ne rien avoir à chercher.",
+        ],
+        cta_label: "Voir le coffret hammam",
+        featured_product_ids: ["p8"],
+      },
+    },
+    {
+      say: "Les deux premiers emails de votre **séquence de bienvenue** sont prêts, avec leur aperçu à droite :\n\n- **J+0** — remerciement et présentation de la maison, avec l'huile d'argan et le savon d'Alep\n- **J+2** — un contenu utile (le rituel hammam) qui amène naturellement au coffret\n\nJe n'ai inclus aucun code promo, puisque je ne connais pas votre politique d'offres. Un code de bienvenue dans un troisième email à J+5 est ce qui convertit le mieux : donnez-moi le montant et je l'écris.",
+    },
+  ],
+  social: [
+    { say: "Je relis la fiche du miel de sidr, puis j'écris le script et le post qui l'accompagne." },
+    { tool: "get_product", input: { product_id: "p3" } },
+    {
+      tool: "create_video_script",
+      input: {
+        platform: "TikTok",
+        title: "Miel de sidr — le test de la cuillère",
+        duration_seconds: 30,
+        hook: "« Ce miel ne coule presque pas. Regardez. »",
+        scenes: [
+          { visual: "Gros plan : une cuillère en bois plonge dans le pot et remonte lentement, le miel s'étire sans tomber", voiceover: "Ce miel ne coule presque pas. Regardez.", on_screen_text: "Il ne coule (presque) pas", seconds: 4 },
+          { visual: "Le pot posé sur une table en bois, lumière naturelle, on tourne le pot pour montrer l'étiquette", voiceover: "C'est du miel de sidr. Il vient du Yémen, et sa texture est aussi dense que ça.", on_screen_text: "Miel de sidr du Yémen", seconds: 7 },
+          { visual: "Une main étale le miel sur une tranche de pain chaud", voiceover: "Le goût ? Entre le caramel et la datte. Rien à voir avec un miel de supermarché.", on_screen_text: "Caramel + datte", seconds: 7 },
+          { visual: "Plan serré : une cuillère de miel dans une tasse de lait chaud, on remue", voiceover: "Chez nous, c'est une cuillère le matin, ou dans un lait chaud le soir.", on_screen_text: "", seconds: 7 },
+          { visual: "Le pot face caméra, une main le pousse doucement vers l'objectif", voiceover: "Le pot de 250 grammes est sur notre boutique. Lien en bio.", on_screen_text: "Lien en bio", seconds: 5 },
+        ],
+        caption: "Le test de la cuillère ne ment pas 🍯 Miel de sidr du Yémen, pot de 250 g. Vous l'avez déjà goûté ?",
+        hashtags: ["mieldesidr", "miel", "epiceriefine", "produitsnaturels", "petitdejeuner", "decouverte"],
+        cta: "Lien en bio pour le pot de 250 g",
+      },
+    },
+    {
+      tool: "create_social_post",
+      input: {
+        platform: "Instagram",
+        format: "Carrousel",
+        caption:
+          "Tous les miels ne se ressemblent pas.\n\nLe miel de sidr se reconnaît à trois choses : une texture dense qui s'étire, une couleur ambrée profonde, un goût entre le caramel et la datte.\n\nFaites défiler pour voir la différence en images ➡️\n\nEt vous, vous le préférez nature ou dans un lait chaud ?",
+        hashtags: ["mieldesidr", "miel", "epiceriefine", "produitsnaturels", "faitmaison", "gourmandise", "maisonnour"],
+        visual_idea:
+          "Carrousel de 4 images : 1) la cuillère qui s'étire avec le texte « Il ne coule presque pas » ; 2) gros plan sur la couleur à contre-jour ; 3) le miel sur une tranche de pain chaud ; 4) le pot avec le prix et « Lien en bio ».",
+      },
+    },
+    {
+      say: "Voici de quoi lancer le **miel de sidr** sur vos réseaux :\n\n- un **script TikTok de 30 secondes** en 5 plans, filmable seul au smartphone, avec une accroche visuelle (la cuillère qui ne coule pas)\n- un **carrousel Instagram** qui reprend la même idée pour ceux qui ne regardent pas les vidéos\n\nTout est dans vos livrables à droite. Je n'ai mentionné aucune vertu santé, uniquement le goût et la texture. Prochaine étape : je peux décliner ce duo vidéo + post pour le savon d'Alep, ou planifier votre semaine complète.",
+    },
+  ],
+};
+
+const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+export async function runMockAgent({
+  request,
+  emit,
+  signal,
+  speed = 1,
+}: {
+  request: ChatRequest;
+  emit: (event: StreamEvent) => void;
+  signal?: AbortSignal;
+  /** 0 disables the artificial delays (tests). */
+  speed?: number;
+}): Promise<void> {
+  const ctx = { agentId: request.agentId, store: request.store };
+  let wroteText = false;
+  for (const step of SCRIPTS[request.agentId]) {
+    if (signal?.aborted) return;
+    if ("say" in step) {
+      if (wroteText) emit({ type: "text", delta: "\n\n" });
+      for (const chunk of step.say.match(/\S+\s*/g) ?? []) {
+        emit({ type: "text", delta: chunk });
+        await pause(18 * speed);
+      }
+      wroteText = true;
+      continue;
+    }
+    const id = `demo_${randomUUID().slice(0, 8)}`;
+    emit({ type: "tool_start", id, name: step.tool, label: toolLabel(step.tool) });
+    const size = JSON.stringify(step.input).length;
+    for (let chars = 150; chars < size; chars += 150) {
+      emit({ type: "tool_progress", id, chars });
+      await pause(35 * speed);
+    }
+    await pause(350 * speed);
+    const result = await executeTool(step.tool, step.input, ctx);
+    if (result.deliverable) emit({ type: "deliverable", deliverable: result.deliverable });
+    emit({ type: "tool_end", id, ok: !result.isError, summary: result.summary });
+  }
+}
