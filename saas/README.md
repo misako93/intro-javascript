@@ -4,10 +4,10 @@ MVP d'un SaaS où quatre agents IA travaillent sur une boutique e-commerce. Le c
 
 | Agent | Ce qu'il fait |
 |---|---|
-| **Webmaster** | Réécrit les fiches produits, crée les pages (FAQ, À propos, Livraison et retours) |
+| **Webmaster** | Réécrit les fiches produits, crée les pages (FAQ, À propos, Livraison et retours), change les prix en masse, prépare les codes promo et la barre d'annonce |
 | **SEO** | Audite le catalogue ou une page publique, propose balises title et meta descriptions, rédige des articles |
 | **Emailing** | Écrit séquences de bienvenue, relances de panier, newsletters, avec aperçu HTML |
-| **Réseaux & Vidéo** | Écrit scripts TikTok/Reels plan par plan, posts, calendrier éditorial |
+| **Réseaux & Vidéo** | Écrit scripts TikTok/Reels plan par plan (avec ou sans présentateur IA), posts, calendrier éditorial |
 
 Le client n'a jamais accès à Claude Code : il utilise cette interface, et les agents appellent l'API Claude côté serveur.
 
@@ -53,6 +53,8 @@ Vercel déploie la branche par défaut du dépôt : le dossier `saas/` doit donc
 - `lib/server/tools.ts` définit les outils de chaque agent. Chaque entrée est validée avant exécution ; une entrée invalide est renvoyée à Claude pour correction.
 - `lib/server/prompts.ts` contient les consignes de chaque agent (rôle, règles de contenu, interdiction d'inventer des chiffres ou des allégations santé).
 - `lib/audit.ts` calcule les scores SEO avec des règles fixes : le score affiché ne vient jamais du modèle.
+- Les prix en masse suivent le même principe : l'agent choisit une règle (« -15 % sur la catégorie Huiles, arrondi à ,90 ») et c'est `propose_price_rule` qui calcule chaque prix. L'écran de validation montre la variation réelle après arrondi.
+- `lib/store-changes.ts` applique à la boutique les changements validés : fiche, prix, code promo, barre d'annonce. L'écran « Aperçu du site » les montre aussitôt.
 - `lib/server/seo-page.ts` télécharge une page publique pour l'auditer et bloque les adresses internes.
 - L'état (boutique de démo, conversations, livrables) est gardé dans le navigateur. Le serveur ne stocke rien.
 
@@ -79,4 +81,5 @@ ANTHROPIC_BASE_URL=http://127.0.0.1:4010 ANTHROPIC_API_KEY=test npm run dev
 - **Une seule boutique, fictive** (« Maison Nour »). La connexion à une vraie boutique Shopify n'est pas faite : valider une proposition modifie le catalogue de démonstration, pas un site réel.
 - **Pas de comptes clients ni de paiement.** Le code d'accès unique protège l'URL, il ne sépare pas plusieurs clients.
 - **Pas d'envoi d'emails ni de publication sur les réseaux.** Les livrables sont à copier dans l'outil du client.
+- **Pas de génération de vidéo.** Pour une vidéo avec présentateur IA, l'agent écrit le script, la voix off et le brief du personnage, à donner à un outil de génération vidéo. Brancher un tel outil demande un compte et une clé chez ce fournisseur.
 - **Pas de données de recherche** (volumes, positions) : l'agent SEO raisonne par intention et le dit.

@@ -15,8 +15,31 @@ export interface Product {
   seoDescription: string;
   imageAlt: string;
   emoji: string;
+  /** Former price shown struck through next to the current one. */
+  compareAtPrice?: number | null;
   /** Set once an approved AI proposal has been applied to this product. */
   updatedByAi?: boolean;
+}
+
+export interface Discount {
+  id: string;
+  code: string;
+  kind: "percentage" | "fixed_amount" | "free_shipping";
+  /** Percent or euros, depending on the kind. 0 for free shipping. */
+  value: number;
+  /** Human-readable scope, e.g. « Toute la boutique » or « Catégorie Huiles ». */
+  appliesTo: string;
+  /** Minimum basket in euros. 0 means none. */
+  minimumPurchase: number;
+  /** ISO date (YYYY-MM-DD). Empty means no end date. */
+  endsOn: string;
+  oncePerCustomer: boolean;
+}
+
+export interface AnnouncementBar {
+  messages: string[];
+  link: string;
+  scrolling: boolean;
 }
 
 export interface StoreState {
@@ -24,6 +47,8 @@ export interface StoreState {
   url: string;
   tagline: string;
   products: Product[];
+  discounts: Discount[];
+  announcement: AnnouncementBar | null;
 }
 
 export type ProductField =
@@ -49,13 +74,37 @@ interface DeliverableBase {
   createdAt: number;
 }
 
+export type ChangeStatus = "pending" | "approved" | "rejected";
+
 export interface ProductUpdateDeliverable extends DeliverableBase {
   type: "product_update";
   productId: string;
   productTitle: string;
   reason: string;
   changes: { field: ProductField; before: string; after: string }[];
-  status: "pending" | "approved" | "rejected";
+  status: ChangeStatus;
+}
+
+export interface PriceUpdateDeliverable extends DeliverableBase {
+  type: "price_update";
+  label: string;
+  reason: string;
+  changes: { productId: string; productTitle: string; before: number; after: number; compareAtAfter: number | null }[];
+  status: ChangeStatus;
+}
+
+export interface DiscountDeliverable extends DeliverableBase {
+  type: "discount";
+  reason: string;
+  discount: Omit<Discount, "id">;
+  status: ChangeStatus;
+}
+
+export interface AnnouncementDeliverable extends DeliverableBase {
+  type: "announcement";
+  reason: string;
+  bar: AnnouncementBar;
+  status: ChangeStatus;
 }
 
 export interface PageDeliverable extends DeliverableBase {
@@ -125,6 +174,8 @@ export interface VideoScriptDeliverable extends DeliverableBase {
   platform: string;
   title: string;
   durationSeconds: number;
+  /** Brief of the AI-generated presenter. Empty for a product-only video. */
+  presenter: string;
   hook: string;
   scenes: { visual: string; voiceover: string; onScreenText: string; seconds: number }[];
   caption: string;
@@ -140,6 +191,9 @@ export interface CalendarDeliverable extends DeliverableBase {
 
 export type Deliverable =
   | ProductUpdateDeliverable
+  | PriceUpdateDeliverable
+  | DiscountDeliverable
+  | AnnouncementDeliverable
   | PageDeliverable
   | ArticleDeliverable
   | SeoAuditDeliverable
@@ -147,6 +201,21 @@ export type Deliverable =
   | SocialPostDeliverable
   | VideoScriptDeliverable
   | CalendarDeliverable;
+
+/** A change to the shop that waits for the owner's approval before it applies. */
+export type StoreChange =
+  | ProductUpdateDeliverable
+  | PriceUpdateDeliverable
+  | DiscountDeliverable
+  | AnnouncementDeliverable;
+
+export function isStoreChange(d: Deliverable): d is StoreChange {
+  return d.type === "product_update" || d.type === "price_update" || d.type === "discount" || d.type === "announcement";
+}
+
+export function pendingChanges(deliverables: Deliverable[]): StoreChange[] {
+  return deliverables.filter((d): d is StoreChange => isStoreChange(d) && d.status === "pending");
+}
 
 /** Distributive Omit, so each member of the union keeps its own fields. */
 export type DeliverableDraft = Deliverable extends infer D
@@ -226,6 +295,12 @@ export function deliverableTitle(d: Deliverable): string {
   switch (d.type) {
     case "product_update":
       return `Fiche « ${d.productTitle} »`;
+    case "price_update":
+      return d.label;
+    case "discount":
+      return `Code promo ${d.discount.code}`;
+    case "announcement":
+      return d.bar.scrolling ? "Barre d'annonce défilante" : "Barre d'annonce";
     case "page":
     case "article":
     case "calendar":
@@ -242,6 +317,9 @@ export function deliverableTitle(d: Deliverable): string {
 
 export const DELIVERABLE_TYPE_LABELS: Record<Deliverable["type"], string> = {
   product_update: "Modification de fiche",
+  price_update: "Modification de prix",
+  discount: "Code promo",
+  announcement: "Barre d'annonce",
   page: "Page",
   article: "Article de blog",
   seo_audit: "Audit SEO",
@@ -250,3 +328,17 @@ export const DELIVERABLE_TYPE_LABELS: Record<Deliverable["type"], string> = {
   video_script: "Script vidéo",
   calendar: "Calendrier éditorial",
 };
+
+export function describeDiscount(d: Omit<Discount, "id">): string {
+  const amount =
+    d.kind === "percentage"
+      ? `-${d.value} %`
+      : d.kind === "fixed_amount"
+        ? `-${d.value.toLocaleString("fr-FR")} €`
+        : "Livraison offerte";
+  const parts = [amount, d.appliesTo];
+  if (d.minimumPurchase > 0) parts.push(`dès ${d.minimumPurchase.toLocaleString("fr-FR")} € d'achat`);
+  if (d.oncePerCustomer) parts.push("une fois par client");
+  if (d.endsOn) parts.push(`jusqu'au ${d.endsOn.split("-").reverse().join("/")}`);
+  return parts.join(" · ");
+}

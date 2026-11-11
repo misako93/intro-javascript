@@ -1,22 +1,23 @@
 "use client";
 
-import { FolderOpen, LayoutDashboard, LoaderCircle, Lock, RotateCcw, Store } from "lucide-react";
+import { Eye, FolderOpen, LayoutDashboard, LoaderCircle, Lock, RotateCcw, Store } from "lucide-react";
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { AGENTS } from "@/lib/agents";
 import { AppProvider, useApp } from "@/lib/client/state";
 import { APP_NAME, APP_TAGLINE } from "@/lib/config";
-import { AGENT_IDS, type AgentId } from "@/lib/types";
+import { AGENT_IDS, type AgentId, pendingChanges } from "@/lib/types";
 import { AgentView } from "./AgentView";
 import { Dashboard } from "./Dashboard";
 import { DeliverableModal, DeliverablesView } from "./Deliverables";
+import { Storefront } from "./Storefront";
 import { StoreView } from "./StoreView";
 import { AgentIcon } from "./ui";
 
-type View = "dashboard" | "store" | "deliverables" | `agent:${AgentId}`;
+type View = "dashboard" | "store" | "storefront" | "deliverables" | `agent:${AgentId}`;
 
 function parseView(hash: string): View {
   const value = hash.replace(/^#\/?/, "");
-  if (value === "store" || value === "deliverables") return value;
+  if (value === "store" || value === "storefront" || value === "deliverables") return value;
   const agent = AGENT_IDS.find((id) => value === `agent:${id}`);
   return agent ? `agent:${agent}` : "dashboard";
 }
@@ -70,7 +71,7 @@ function Shell() {
 
   if (status?.requiresCode && !status.codeValid) return <AccessGate />;
 
-  const pendingCount = state.deliverables.filter((d) => d.type === "product_update" && d.status === "pending").length;
+  const pendingCount = pendingChanges(state.deliverables).length;
   const activeAgent = view.startsWith("agent:") ? (view.slice(6) as AgentId) : null;
 
   return (
@@ -106,6 +107,9 @@ function Shell() {
           <div className="nav-label">Votre boutique</div>
           <button type="button" className={`nav-item ${view === "store" ? "active" : ""}`} onClick={() => navigate("store")}>
             <Store size={18} /> <span>Catalogue</span>
+          </button>
+          <button type="button" className={`nav-item ${view === "storefront" ? "active" : ""}`} onClick={() => navigate("storefront")}>
+            <Eye size={18} /> <span>Aperçu du site</span>
           </button>
           <button type="button" className={`nav-item ${view === "deliverables" ? "active" : ""}`} onClick={() => navigate("deliverables")}>
             <FolderOpen size={18} /> <span>Livrables</span>
@@ -146,6 +150,8 @@ function Shell() {
           <AgentView key={activeAgent} agentId={activeAgent} onOpen={setOpenDeliverable} />
         ) : view === "store" ? (
           <StoreView />
+        ) : view === "storefront" ? (
+          <Storefront />
         ) : view === "deliverables" ? (
           <DeliverablesView onOpen={setOpenDeliverable} />
         ) : (

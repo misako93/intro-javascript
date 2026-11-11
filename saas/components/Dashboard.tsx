@@ -4,18 +4,18 @@ import { ArrowRight } from "lucide-react";
 import { AGENTS } from "@/lib/agents";
 import { auditCatalog } from "@/lib/audit";
 import { useApp } from "@/lib/client/state";
-import type { AgentId } from "@/lib/types";
+import { type AgentId, pendingChanges } from "@/lib/types";
 import { DeliverableCard } from "./Deliverables";
 import { AgentIcon, ScoreRing } from "./ui";
 
 export function Dashboard({ onOpenAgent, onOpenDeliverable, onNavigate }: {
   onOpenAgent: (id: AgentId) => void;
   onOpenDeliverable: (id: string) => void;
-  onNavigate: (view: "store" | "deliverables") => void;
+  onNavigate: (view: "store" | "deliverables" | "storefront") => void;
 }) {
   const { state } = useApp();
   const { score } = auditCatalog(state.store);
-  const pending = state.deliverables.filter((d) => d.type === "product_update" && d.status === "pending");
+  const pending = pendingChanges(state.deliverables);
   const improved = state.store.products.filter((p) => p.updatedByAi).length;
 
   return (
@@ -40,7 +40,7 @@ export function Dashboard({ onOpenAgent, onOpenDeliverable, onNavigate }: {
         <button type="button" className="stat" onClick={() => onNavigate("deliverables")}>
           <div className="stat-value">{pending.length}</div>
           <div className="stat-label">À valider</div>
-          <div className="stat-hint">Modifications proposées</div>
+          <div className="stat-hint">Changements proposés</div>
         </button>
         <button type="button" className="stat" onClick={() => onNavigate("deliverables")}>
           <div className="stat-value">{state.deliverables.length}</div>

@@ -39,7 +39,10 @@ export function StoreView() {
                       <span className="ai-badge"><Sparkles size={12} /> Mise à jour par l&apos;IA</span>
                     )}
                   </div>
-                  <div className="product-sub">{p.category} · {formatPrice(p.price)}</div>
+                  <div className="product-sub">
+                    {p.category} · {formatPrice(p.price)}
+                    {p.compareAtPrice && p.compareAtPrice > p.price ? <s> {formatPrice(p.compareAtPrice)}</s> : null}
+                  </div>
                   <div className="product-excerpt">{p.description}</div>
                 </div>
                 <div className="product-side">

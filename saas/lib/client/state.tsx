@@ -2,6 +2,7 @@
 
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { createDemoStore } from "../demo-store";
+import { applyChange } from "../store-changes";
 import {
   AGENT_IDS,
   type AgentId,
@@ -10,7 +11,9 @@ import {
   DELIVERABLE_TYPE_LABELS,
   type Deliverable,
   deliverableTitle,
+  isStoreChange,
   messageText,
+  pendingChanges,
   type StatusResponse,
   type StoreState,
   type StreamEvent,
@@ -114,22 +117,13 @@ export function reducer(state: AppState, action: Action): AppState {
     }
     case "decide": {
       const target = state.deliverables.find((d) => d.id === action.id);
-      if (!target || target.type !== "product_update" || target.status !== "pending") return state;
+      if (!target || !isStoreChange(target) || target.status !== "pending") return state;
       const deliverables = state.deliverables.map((d) =>
-        d.id === action.id && d.type === "product_update" ? { ...d, status: action.decision } : d,
+        d.id === action.id && isStoreChange(d) ? ({ ...d, status: action.decision } as Deliverable) : d,
       );
       if (action.decision === "rejected") return { ...state, deliverables };
-      // Approved: apply the proposed values to the product.
-      const products = state.store.products.map((p) => {
-        if (p.id !== target.productId) return p;
-        const next = { ...p, updatedByAi: true };
-        for (const change of target.changes) {
-          if (change.field === "tags") next.tags = change.after.split(",").map((t) => t.trim()).filter(Boolean);
-          else next[change.field] = change.after;
-        }
-        return next;
-      });
-      return { ...state, deliverables, store: { ...state.store, products } };
+      // Approved: the proposal is applied to the shop.
+      return { ...state, deliverables, store: applyChange(state.store, target) };
     }
   }
 }
@@ -143,6 +137,9 @@ function loadState(): AppState | null {
     if (!raw) return null;
     const saved = JSON.parse(raw) as AppState;
     if (!saved?.store?.products || !Array.isArray(saved.deliverables) || !saved.chats) return null;
+    // Workspaces saved by an earlier version have no promo codes or announcement bar yet.
+    saved.store.discounts ??= [];
+    saved.store.announcement ??= null;
     // A reload interrupts any turn that was streaming.
     for (const agentId of AGENT_IDS) {
       saved.chats[agentId] = (saved.chats[agentId] ?? []).map((m) => ({
@@ -238,17 +235,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
         .slice(-20),
       store: current.store,
       workspace: {
-        pendingCount: current.deliverables.filter((d) => d.type === "product_update" && d.status === "pending").length,
+        pendingCount: pendingChanges(current.deliverables).length,
         deliverables: current.deliverables
           .filter((d) => d.agentId === agentId)
           .slice(-20)
           .map((d) => ({
             type: DELIVERABLE_TYPE_LABELS[d.type],
             title: deliverableTitle(d),
-            status:
-              d.type === "product_update"
-                ? { pending: "en attente de validation", approved: "validée et appliquée", rejected: "refusée par le client" }[d.status]
-                : undefined,
+            status: isStoreChange(d)
+              ? { pending: "en attente de validation", approved: "validé et appliqué", rejected: "refusé par le client" }[d.status]
+              : undefined,
           })),
       },
     };

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type Anthropic from "@anthropic-ai/sdk";
 import * as z from "zod";
 import { auditCatalog } from "../audit";
-import type { AgentId, Deliverable, DeliverableDraft, ProductField, StoreState } from "../types";
+import { type AgentId, type Deliverable, type DeliverableDraft, describeDiscount, type Product, type ProductField, type StoreState } from "../types";
 import { analyzeHtml, fetchPublicHtml, PageAuditError } from "./seo-page";
 
 export interface ToolContext {
@@ -37,6 +37,51 @@ const fail = (message: string): ToolOutcome => ({ content: message, summary: mes
 const SEO_TITLE_MAX = 65;
 const SEO_DESCRIPTION_MAX = 165;
 
+const ScopeSchema = z.object({
+  type: z.enum(["all", "category", "products"]).describe("all : toute la boutique ; category : une catégorie ; products : une liste de produits"),
+  category: z.string().optional().describe("Nom de la catégorie, si type = category"),
+  product_ids: z.array(z.string()).optional().describe("Identifiants des produits, si type = products"),
+});
+
+/** Turns a scope chosen by the model into the products it covers. */
+function resolveScope(
+  scope: z.infer<typeof ScopeSchema> | undefined,
+  store: StoreState,
+): { products: Product[]; label: string } | { error: string } {
+  if (!scope || scope.type === "all") return { products: store.products, label: "Toute la boutique" };
+  if (scope.type === "category") {
+    const wanted = (scope.category ?? "").trim().toLowerCase();
+    const products = store.products.filter((p) => p.category.toLowerCase() === wanted);
+    if (products.length === 0) {
+      const categories = [...new Set(store.products.map((p) => p.category))].join(", ");
+      return { error: `Catégorie introuvable : « ${scope.category ?? ""} ». Catégories existantes : ${categories}.` };
+    }
+    return { products, label: `Catégorie ${products[0].category}` };
+  }
+  const ids = scope.product_ids ?? [];
+  if (ids.length === 0) return { error: "product_ids est vide : indique les produits concernés." };
+  const unknown = ids.filter((id) => !store.products.some((p) => p.id === id));
+  if (unknown.length) return { error: `Produits introuvables : ${unknown.join(", ")}. Appelle list_products pour obtenir les identifiants.` };
+  const products = store.products.filter((p) => ids.includes(p.id));
+  return { products, label: products.length === 1 ? products[0].title : `${products.length} produits` };
+}
+
+type Rounding = "none" | "0.90" | "0.99" | "0.00";
+
+/** Prices are computed here, never by the model, so the arithmetic is always right. */
+export function roundPrice(price: number, rounding: Rounding): number {
+  if (rounding === "none") return Math.round(price * 100) / 100;
+  if (rounding === "0.00") return Math.max(1, Math.round(price));
+  const ending = rounding === "0.90" ? 0.9 : 0.99;
+  const base = Math.floor(price);
+  const lower = base - 1 + ending;
+  const upper = base + ending;
+  const chosen = lower > 0 && price - lower <= upper - price ? lower : upper;
+  return Math.round(chosen * 100) / 100;
+}
+
+const euros = (value: number) => `${value.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
+
 const SPECS: ToolSpec[] = [
   tool({
     name: "list_products",
@@ -52,6 +97,7 @@ const SPECS: ToolSpec[] = [
           title: p.title,
           category: p.category,
           price_eur: p.price,
+          compare_at_price_eur: p.compareAtPrice ?? null,
           description_words: p.description.split(/\s+/).filter(Boolean).length,
           has_seo_title: Boolean(p.seoTitle.trim()),
           has_meta_description: Boolean(p.seoDescription.trim()),
@@ -185,6 +231,162 @@ const SPECS: ToolSpec[] = [
   }),
 
   tool({
+    name: "get_store_settings",
+    label: "Lecture des réglages de la boutique",
+    description:
+      "Renvoie les codes promo actifs et la barre d'annonce actuelle de la boutique. À appeler avant de créer un code promo ou une barre d'annonce, et avant de citer un code promo dans un email ou un post : n'utilise que les codes renvoyés ici.",
+    schema: z.object({}),
+    run: (_input, { store }) => ({
+      summary: `${store.discounts.length} code${store.discounts.length > 1 ? "s" : ""} promo actif${store.discounts.length > 1 ? "s" : ""}`,
+      content: JSON.stringify({
+        discount_codes: store.discounts.map((d) => ({ code: d.code, rule: describeDiscount(d) })),
+        announcement_bar: store.announcement,
+      }),
+    }),
+  }),
+
+  tool({
+    name: "propose_price_rule",
+    label: "Calcul des nouveaux prix",
+    description:
+      "Propose une modification de prix en masse à partir d'une règle (pourcentage, montant ou prix fixe) sur toute la boutique, une catégorie ou une liste de produits. L'outil calcule lui-même les nouveaux prix et renvoie le détail : ne fais jamais ce calcul à la main. Rien n'est appliqué sans validation du client.",
+    schema: z.object({
+      label: z.string().describe("Nom court de l'opération, par exemple « -15 % sur les Huiles »"),
+      reason: z.string().describe("Pourquoi ce changement, en une phrase simple destinée au client"),
+      scope: ScopeSchema,
+      operation: z.enum(["percent", "amount", "set"]).describe("percent : variation en % ; amount : variation en euros ; set : prix fixe"),
+      value: z.number().describe("-15 pour baisser de 15 %, 2 pour augmenter de 2 €, 19.9 pour fixer le prix à 19,90 €"),
+      rounding: z.enum(["none", "0.90", "0.99", "0.00"]).optional().describe("Terminaison des prix après calcul. none par défaut."),
+      show_compare_at: z.boolean().optional().describe("En cas de baisse, afficher l'ancien prix barré. true par défaut."),
+    }),
+    run: (input, { store }) => {
+      const scope = resolveScope(input.scope, store);
+      if ("error" in scope) return fail(scope.error);
+      if (input.operation === "percent" && (input.value < -90 || input.value > 300)) {
+        return fail("Variation en pourcentage hors limites : elle doit rester entre -90 % et +300 %.");
+      }
+      if (input.operation === "set" && input.value <= 0) return fail("Un prix fixe doit être supérieur à 0.");
+      const changes = [];
+      for (const p of scope.products) {
+        const raw =
+          input.operation === "percent" ? p.price * (1 + input.value / 100) : input.operation === "amount" ? p.price + input.value : input.value;
+        if (raw <= 0) return fail(`La règle donnerait un prix nul ou négatif pour « ${p.title} ».`);
+        const after = roundPrice(raw, input.rounding ?? "none");
+        if (after === p.price) continue;
+        const lowered = after < p.price;
+        changes.push({
+          productId: p.id,
+          productTitle: p.title,
+          before: p.price,
+          after,
+          compareAtAfter: lowered && input.show_compare_at !== false ? Math.max(p.price, p.compareAtPrice ?? 0) : null,
+        });
+      }
+      if (changes.length === 0) return fail("Cette règle ne change aucun prix.");
+      return {
+        summary: `${changes.length} prix calculé${changes.length > 1 ? "s" : ""} (${scope.label})`,
+        content: JSON.stringify({
+          status: "en_attente_de_validation",
+          scope: scope.label,
+          prices: changes.map((c) => ({
+            product: c.productTitle,
+            before: euros(c.before),
+            after: euros(c.after),
+            real_variation: `${c.after > c.before ? "+" : ""}${Math.round(((c.after - c.before) / c.before) * 100)} %`,
+          })),
+          note: "Proposition enregistrée. Les prix ne changeront qu'après validation par le client. Si un arrondi est appliqué, la variation réelle diffère un peu de la règle : donne au client la variation réelle de chaque produit. Tu ne connais pas les coûts d'achat : rappelle-lui de vérifier sa marge.",
+        }),
+        deliverable: { type: "price_update", label: input.label, reason: input.reason, changes, status: "pending" },
+      };
+    },
+  }),
+
+  tool({
+    name: "propose_discount_code",
+    label: "Préparation du code promo",
+    description:
+      "Propose la création d'un code promo (pourcentage, montant fixe ou livraison offerte) avec ses conditions. À appeler quand le client demande un code de réduction. Utilise les conditions données par le client ; n'en invente pas. Rien n'est créé sans validation du client.",
+    schema: z.object({
+      code: z.string().describe("Code en majuscules, sans espace ni accent, 3 à 20 caractères, par exemple BIENVENUE10"),
+      kind: z.enum(["percentage", "fixed_amount", "free_shipping"]),
+      value: z.number().describe("10 pour -10 %, 5 pour -5 €, 0 pour la livraison offerte"),
+      scope: ScopeSchema.optional().describe("Produits concernés. Absent : toute la boutique."),
+      minimum_purchase: z.number().optional().describe("Montant minimum du panier en euros. Absent ou 0 : aucun minimum."),
+      ends_on: z.string().optional().describe("Date de fin au format AAAA-MM-JJ. Absent : pas de date de fin."),
+      once_per_customer: z.boolean().optional().describe("true pour limiter à une utilisation par client"),
+      reason: z.string().describe("À quoi sert ce code, en une phrase simple destinée au client"),
+    }),
+    run: (input, { store }) => {
+      const code = input.code.trim().toUpperCase();
+      if (!/^[A-Z0-9_-]{3,20}$/.test(code)) {
+        return fail("Code invalide : 3 à 20 caractères, lettres majuscules sans accent, chiffres, tiret ou underscore.");
+      }
+      if (store.discounts.some((d) => d.code === code)) return fail(`Le code ${code} existe déjà. Propose un autre nom.`);
+      if (input.kind === "percentage" && (input.value < 1 || input.value > 90)) {
+        return fail("Un code en pourcentage doit être compris entre 1 et 90 %.");
+      }
+      if (input.kind === "fixed_amount" && input.value <= 0) return fail("Le montant de la réduction doit être supérieur à 0.");
+      const endsOn = input.ends_on?.trim() ?? "";
+      if (endsOn && (!/^\d{4}-\d{2}-\d{2}$/.test(endsOn) || Number.isNaN(Date.parse(endsOn)))) {
+        return fail("ends_on doit être une date au format AAAA-MM-JJ.");
+      }
+      const scope = resolveScope(input.scope, store);
+      if ("error" in scope) return fail(scope.error);
+      const discount = {
+        code,
+        kind: input.kind,
+        value: input.kind === "free_shipping" ? 0 : input.value,
+        appliesTo: scope.label,
+        minimumPurchase: Math.max(0, input.minimum_purchase ?? 0),
+        endsOn,
+        oncePerCustomer: Boolean(input.once_per_customer),
+      };
+      return {
+        summary: `Code ${code} préparé`,
+        content: JSON.stringify({
+          status: "en_attente_de_validation",
+          code,
+          rule: describeDiscount(discount),
+          note: "Proposition enregistrée. Le code ne sera actif qu'après validation par le client.",
+        }),
+        deliverable: { type: "discount", reason: input.reason, discount, status: "pending" },
+      };
+    },
+  }),
+
+  tool({
+    name: "propose_announcement_bar",
+    label: "Préparation de la barre d'annonce",
+    description:
+      "Propose le contenu de la barre d'annonce affichée tout en haut du site, fixe ou défilante. À appeler quand le client demande une barre défilante, un bandeau ou une annonce en haut du site. N'annonce que ce que le client t'a dit (livraison offerte, délai, offre) ou un code promo actif. Rien n'est affiché sans validation du client.",
+    schema: z.object({
+      messages: z.array(z.string()).describe("1 à 4 messages courts, 70 caractères maximum chacun"),
+      scrolling: z.boolean().describe("true pour une barre défilante, false pour une barre fixe"),
+      link: z.string().optional().describe("Adresse ouverte au clic. Absent : pas de lien."),
+      reason: z.string().describe("Pourquoi cette annonce, en une phrase simple destinée au client"),
+    }),
+    run: (input) => {
+      const messages = input.messages.map((m) => m.trim()).filter(Boolean);
+      if (messages.length === 0 || messages.length > 4) return fail("Il faut entre 1 et 4 messages.");
+      const tooLong = messages.find((m) => m.length > 90);
+      if (tooLong) return fail(`Message trop long (${tooLong.length} caractères) : raccourcis-le à 70 maximum.`);
+      return {
+        summary: `Barre d'annonce préparée (${messages.length} message${messages.length > 1 ? "s" : ""})`,
+        content: JSON.stringify({
+          status: "en_attente_de_validation",
+          note: "Proposition enregistrée. La barre n'apparaîtra sur le site qu'après validation par le client.",
+        }),
+        deliverable: {
+          type: "announcement",
+          reason: input.reason,
+          bar: { messages, scrolling: input.scrolling, link: input.link?.trim() ?? "" },
+          status: "pending",
+        },
+      };
+    },
+  }),
+
+  tool({
     name: "create_page",
     label: "Rédaction de la page",
     description:
@@ -295,6 +497,10 @@ const SPECS: ToolSpec[] = [
       platform: z.enum(["TikTok", "Instagram Reels", "YouTube Shorts"]),
       title: z.string().describe("Nom interne de la vidéo"),
       duration_seconds: z.number().describe("Durée totale visée, entre 15 et 60"),
+      presenter: z
+        .string()
+        .optional()
+        .describe("Si la vidéo est présentée par un personnage généré par IA : qui il est, son allure, son ton, le décor. Absent pour une vidéo produit sans personne."),
       hook: z.string().describe("Phrase ou image d'accroche des 2 premières secondes"),
       scenes: z
         .array(
@@ -318,6 +524,7 @@ const SPECS: ToolSpec[] = [
         platform: input.platform,
         title: input.title,
         durationSeconds: input.duration_seconds,
+        presenter: input.presenter?.trim() ?? "",
         hook: input.hook,
         scenes: input.scenes.map((s) => ({
           visual: s.visual,
@@ -389,10 +596,20 @@ function stripHash(tag: string): string {
 const BY_NAME = new Map(SPECS.map((spec) => [spec.name, spec]));
 
 const AGENT_TOOLS: Record<AgentId, string[]> = {
-  webmaster: ["list_products", "get_product", "audit_catalog", "propose_product_update", "create_page"],
+  webmaster: [
+    "list_products",
+    "get_product",
+    "get_store_settings",
+    "audit_catalog",
+    "propose_product_update",
+    "propose_price_rule",
+    "propose_discount_code",
+    "propose_announcement_bar",
+    "create_page",
+  ],
   seo: ["list_products", "get_product", "audit_catalog", "audit_page", "propose_product_update", "create_article"],
-  email: ["list_products", "get_product", "create_email"],
-  social: ["list_products", "get_product", "create_video_script", "create_social_post", "create_content_calendar"],
+  email: ["list_products", "get_product", "get_store_settings", "create_email"],
+  social: ["list_products", "get_product", "get_store_settings", "create_video_script", "create_social_post", "create_content_calendar"],
 };
 
 export function toolLabel(name: string): string {

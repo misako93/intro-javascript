@@ -1,4 +1,4 @@
-import { type Deliverable, type EmailDeliverable, PRODUCT_FIELD_LABELS } from "./types";
+import { type Deliverable, describeDiscount, type EmailDeliverable, PRODUCT_FIELD_LABELS } from "./types";
 
 const escapeHtml = (value: string) =>
   value
@@ -62,6 +62,12 @@ export function deliverableToText(d: Deliverable, storeName: string): string {
   switch (d.type) {
     case "product_update":
       return d.changes.map((c) => `${PRODUCT_FIELD_LABELS[c.field]} :\n${c.after}`).join("\n\n");
+    case "price_update":
+      return `${d.label}\n\n${d.changes.map((c) => `${c.productTitle} : ${formatPrice(c.before)} → ${formatPrice(c.after)}`).join("\n")}`;
+    case "discount":
+      return `${d.discount.code} — ${describeDiscount(d.discount)}`;
+    case "announcement":
+      return d.bar.messages.join("\n");
     case "page":
       return `# ${d.title}\n\nURL : /pages/${d.slug}\nTitre SEO : ${d.metaTitle}\nMeta description : ${d.metaDescription}\n\n${d.markdown}`;
     case "article":
@@ -77,7 +83,7 @@ export function deliverableToText(d: Deliverable, storeName: string): string {
     case "social_post":
       return `${d.caption}\n\n${d.hashtags.map((h) => `#${h}`).join(" ")}`;
     case "video_script":
-      return `${d.title} — ${d.platform}, ${d.durationSeconds} s\n\nAccroche : ${d.hook}\n\n${d.scenes
+      return `${d.title} — ${d.platform}, ${d.durationSeconds} s\n\n${d.presenter ? `Présentateur IA : ${d.presenter}\n\n` : ""}Accroche : ${d.hook}\n\n${d.scenes
         .map((s, i) => `Plan ${i + 1} (${s.seconds} s)\n  Image : ${s.visual}\n  Voix : ${s.voiceover || "—"}\n  Texte à l'écran : ${s.onScreenText || "—"}`)
         .join("\n\n")}\n\nAppel à l'action : ${d.cta}\n\nLégende : ${d.caption}\n${d.hashtags.map((h) => `#${h}`).join(" ")}`;
     case "calendar":

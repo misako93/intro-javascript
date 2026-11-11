@@ -21,7 +21,19 @@ const ProductSchema = z.object({
   seoDescription: z.string().max(600),
   imageAlt: z.string().max(300),
   emoji: z.string().max(16),
+  compareAtPrice: z.number().nullable().optional(),
   updatedByAi: z.boolean().optional(),
+});
+
+const DiscountSchema = z.object({
+  id: z.string().max(64),
+  code: z.string().max(40),
+  kind: z.enum(["percentage", "fixed_amount", "free_shipping"]),
+  value: z.number(),
+  appliesTo: z.string().max(200),
+  minimumPurchase: z.number(),
+  endsOn: z.string().max(20),
+  oncePerCustomer: z.boolean(),
 });
 
 const ChatSchema = z.object({
@@ -35,6 +47,11 @@ const ChatSchema = z.object({
     url: z.string().max(300),
     tagline: z.string().max(300),
     products: z.array(ProductSchema).max(60),
+    discounts: z.array(DiscountSchema).max(50).default([]),
+    announcement: z
+      .object({ messages: z.array(z.string().max(200)).max(6), link: z.string().max(500), scrolling: z.boolean() })
+      .nullable()
+      .default(null),
   }),
   workspace: z.object({
     pendingCount: z.number(),

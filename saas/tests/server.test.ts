@@ -8,8 +8,9 @@ import { runMockAgent } from "../lib/server/mock-agent";
 import { buildUserContent, systemPrompt } from "../lib/server/prompts";
 import { type AgentStream, type CreateStream, friendlyError, runAgent } from "../lib/server/run-agent";
 import { analyzeHtml, assertPublicUrl, isBlockedAddress, PageAuditError } from "../lib/server/seo-page";
-import { executeTool, toolParamsFor } from "../lib/server/tools";
-import { AGENT_IDS, type ChatRequest, type StreamEvent } from "../lib/types";
+import { executeTool, roundPrice, toolParamsFor } from "../lib/server/tools";
+import { applyChange } from "../lib/store-changes";
+import { AGENT_IDS, type ChatRequest, describeDiscount, type StoreChange, type StreamEvent } from "../lib/types";
 
 const request = (agentId: ChatRequest["agentId"], message = "Bonjour"): ChatRequest => ({
   agentId,
@@ -100,6 +101,179 @@ test("create_email snapshots featured products and defaults the button to the sh
   assert.ok(d && d.type === "email");
   assert.equal(d.ctaUrl, "https://maison-nour.example");
   assert.deepEqual(d.products, [{ title: "Coffret hammam", price: 29.9, emoji: "🎁" }]);
+});
+
+test("price rounding picks the nearest price with the requested ending", () => {
+  const cases: [number, "none" | "0.90" | "0.99" | "0.00", number][] = [
+    [12.665, "none", 12.67],
+    [12.665, "0.90", 12.9],
+    [14.365, "0.90", 13.9],
+    [14.45, "0.90", 14.9],
+    [14.2, "0.90", 13.9],
+    [0.5, "0.90", 0.9],
+    [33.15, "0.99", 32.99],
+    [33.6, "0.99", 33.99],
+    [16.4, "0.00", 16],
+    [0.3, "0.00", 1],
+  ];
+  for (const [price, rounding, expected] of cases) assert.equal(roundPrice(price, rounding), expected, `${price} ${rounding}`);
+});
+
+test("propose_price_rule computes prices itself, for a category, with the old price kept for display", async () => {
+  const ctx = { agentId: "webmaster" as const, store: createDemoStore() };
+  const result = await executeTool(
+    "propose_price_rule",
+    { label: "-15 % sur les Huiles", reason: "Promo", scope: { type: "category", category: "huiles" }, operation: "percent", value: -15, rounding: "0.90" },
+    ctx,
+  );
+  assert.equal(result.isError, false);
+  const d = result.deliverable;
+  assert.ok(d && d.type === "price_update" && d.status === "pending");
+  assert.deepEqual(
+    d.changes.map((c) => [c.productId, c.before, c.after, c.compareAtAfter]),
+    [
+      ["p1", 14.9, 12.9, 14.9],
+      ["p7", 16.9, 13.9, 16.9],
+    ],
+  );
+  // The model reads the computed prices and the real variation back, instead of doing the maths.
+  assert.deepEqual(JSON.parse(result.content).prices, [
+    { product: "Huile nigelle 100ml", before: "14,90 €", after: "12,90 €", real_variation: "-13 %" },
+    { product: "Huile d'argan cosmétique bio – 50 ml, pressée à froid", before: "16,90 €", after: "13,90 €", real_variation: "-18 %" },
+  ]);
+
+  // A price increase removes the struck-through price; an amount rule works on a product list.
+  const up = await executeTool(
+    "propose_price_rule",
+    { label: "+2 €", reason: "Hausse", scope: { type: "products", product_ids: ["p3"] }, operation: "amount", value: 2, show_compare_at: true },
+    ctx,
+  );
+  assert.ok(up.deliverable && up.deliverable.type === "price_update");
+  assert.deepEqual(up.deliverable.changes, [{ productId: "p3", productTitle: "Miel de sidr 250g", before: 39, after: 41, compareAtAfter: null }]);
+});
+
+test("propose_price_rule refuses unknown scopes, absurd rules and rules that change nothing", async () => {
+  const ctx = { agentId: "webmaster" as const, store: createDemoStore() };
+  const base = { label: "x", reason: "x" };
+  const unknownCategory = await executeTool("propose_price_rule", { ...base, scope: { type: "category", category: "Bijoux" }, operation: "percent", value: -10 }, ctx);
+  assert.equal(unknownCategory.isError, true);
+  assert.ok(unknownCategory.content.includes("Huiles"), "the error lists the real categories");
+  for (const input of [
+    { ...base, scope: { type: "all" }, operation: "percent", value: -95 },
+    { ...base, scope: { type: "all" }, operation: "amount", value: -50 },
+    { ...base, scope: { type: "all" }, operation: "set", value: 0 },
+    { ...base, scope: { type: "products", product_ids: ["zzz"] }, operation: "percent", value: -10 },
+    { ...base, scope: { type: "products", product_ids: [] }, operation: "percent", value: -10 },
+    { ...base, scope: { type: "all" }, operation: "percent", value: 0 },
+  ]) {
+    const result = await executeTool("propose_price_rule", input, ctx);
+    assert.equal(result.isError, true, JSON.stringify(input));
+    assert.equal(result.deliverable, undefined);
+  }
+});
+
+test("propose_discount_code validates the code and its conditions", async () => {
+  const store = createDemoStore();
+  const ctx = { agentId: "webmaster" as const, store };
+  const ok = await executeTool(
+    "propose_discount_code",
+    { code: " bienvenue10 ", kind: "percentage", value: 10, minimum_purchase: 30, once_per_customer: true, ends_on: "2026-12-31", reason: "Bienvenue" },
+    ctx,
+  );
+  const d = ok.deliverable;
+  assert.ok(d && d.type === "discount" && d.status === "pending");
+  assert.deepEqual(d.discount, {
+    code: "BIENVENUE10",
+    kind: "percentage",
+    value: 10,
+    appliesTo: "Toute la boutique",
+    minimumPurchase: 30,
+    endsOn: "2026-12-31",
+    oncePerCustomer: true,
+  });
+  assert.equal(describeDiscount(d.discount), "-10 % · Toute la boutique · dès 30 € d'achat · une fois par client · jusqu'au 31/12/2026");
+
+  const shipping = await executeTool("propose_discount_code", { code: "LIVRAISON", kind: "free_shipping", value: 99, scope: { type: "category", category: "Coffrets" }, reason: "r" }, ctx);
+  assert.ok(shipping.deliverable && shipping.deliverable.type === "discount");
+  assert.equal(shipping.deliverable.discount.value, 0);
+  assert.equal(describeDiscount(shipping.deliverable.discount), "Livraison offerte · Catégorie Coffrets");
+
+  store.discounts.push({ id: "x", ...d.discount });
+  for (const input of [
+    { code: "BIENVENUE10", kind: "percentage", value: 5, reason: "doublon" },
+    { code: "été 2026", kind: "percentage", value: 5, reason: "caractères" },
+    { code: "AB", kind: "percentage", value: 5, reason: "trop court" },
+    { code: "TROP", kind: "percentage", value: 95, reason: "trop fort" },
+    { code: "ZERO", kind: "fixed_amount", value: 0, reason: "nul" },
+    { code: "DATE", kind: "percentage", value: 5, ends_on: "31/12/2026", reason: "date" },
+  ]) {
+    const result = await executeTool("propose_discount_code", input, ctx);
+    assert.equal(result.isError, true, JSON.stringify(input));
+  }
+});
+
+test("propose_announcement_bar keeps 1 to 4 short messages", async () => {
+  const ctx = { agentId: "webmaster" as const, store: createDemoStore() };
+  const ok = await executeTool("propose_announcement_bar", { messages: [" Livraison offerte dès 49 € ", ""], scrolling: true, reason: "r" }, ctx);
+  assert.ok(ok.deliverable && ok.deliverable.type === "announcement");
+  assert.deepEqual(ok.deliverable.bar, { messages: ["Livraison offerte dès 49 €"], scrolling: true, link: "" });
+  assert.equal((await executeTool("propose_announcement_bar", { messages: [], scrolling: true, reason: "r" }, ctx)).isError, true);
+  assert.equal((await executeTool("propose_announcement_bar", { messages: ["x".repeat(91)], scrolling: false, reason: "r" }, ctx)).isError, true);
+  assert.equal((await executeTool("propose_announcement_bar", { messages: ["a", "b", "c", "d", "e"], scrolling: false, reason: "r" }, ctx)).isError, true);
+});
+
+test("approved changes apply to the shop; other agents can read active codes but not create them", async () => {
+  let store = createDemoStore();
+  const ctx = () => ({ agentId: "webmaster" as const, store });
+  const approve = async (name: string, input: unknown) => {
+    const result = await executeTool(name, input, ctx());
+    assert.equal(result.isError, false, result.content);
+    store = applyChange(store, result.deliverable as StoreChange);
+  };
+  await approve("propose_price_rule", { label: "Soldes", reason: "r", scope: { type: "category", category: "Huiles" }, operation: "percent", value: -15, rounding: "0.90" });
+  await approve("propose_discount_code", { code: "BIENVENUE10", kind: "percentage", value: 10, reason: "r" });
+  await approve("propose_announcement_bar", { messages: ["Livraison offerte dès 49 €"], scrolling: true, reason: "r" });
+  await approve("propose_product_update", { product_id: "p2", reason: "r", tags: ["savon", "alep", "laurier"] });
+
+  const nigelle = store.products.find((p) => p.id === "p1")!;
+  assert.deepEqual([nigelle.price, nigelle.compareAtPrice, nigelle.updatedByAi], [12.9, 14.9, true]);
+  assert.equal(store.products.find((p) => p.id === "p3")!.price, 39, "products outside the scope are untouched");
+  assert.deepEqual(store.discounts.map((d) => d.code), ["BIENVENUE10"]);
+  assert.deepEqual(store.announcement, { messages: ["Livraison offerte dès 49 €"], scrolling: true, link: "" });
+  assert.deepEqual(store.products.find((p) => p.id === "p2")!.tags, ["savon", "alep", "laurier"]);
+  assert.equal(createDemoStore().products[0].price, 14.9, "the original demo data is not mutated");
+
+  const settings = await executeTool("get_store_settings", {}, { agentId: "email", store });
+  assert.deepEqual(JSON.parse(settings.content), {
+    discount_codes: [{ code: "BIENVENUE10", rule: "-10 % · Toute la boutique" }],
+    announcement_bar: { messages: ["Livraison offerte dès 49 €"], scrolling: true, link: "" },
+  });
+  for (const agentId of ["seo", "email", "social"] as const) {
+    const denied = await executeTool("propose_discount_code", { code: "PIRATE", kind: "percentage", value: 50, reason: "r" }, { agentId, store });
+    assert.equal(denied.isError, true, agentId);
+  }
+});
+
+test("the Webmaster demo picks its script from the request", async () => {
+  const cases: [string, string][] = [
+    ["Baisse de 15 % les prix de la catégorie Huiles, arrondis à ,90", "price_update"],
+    ["Crée un code promo BIENVENUE10 : -10 % dès 30 € d'achat, une fois par client", "discount"],
+    ["Ajoute une barre défilante : livraison offerte dès 49 € d'achat", "announcement"],
+    ["Réécris la fiche de l'huile de nigelle pour qu'elle donne envie d'acheter", "product_update"],
+  ];
+  for (const [message, type] of cases) {
+    const events: StreamEvent[] = [];
+    await runMockAgent({ request: request("webmaster", message), emit: (e) => events.push(e), speed: 0 });
+    assert.deepEqual(events.filter((e) => e.type === "tool_end" && !e.ok), [], message);
+    assert.deepEqual(events.filter((e) => e.type === "deliverable").map((e) => e.deliverable.type), [type], message);
+  }
+  // The recap quotes the prices the tool really computed.
+  const events: StreamEvent[] = [];
+  await runMockAgent({ request: request("webmaster", "Baisse les prix des huiles"), emit: (e) => events.push(e), speed: 0 });
+  const priced = events.find((e) => e.type === "deliverable")!.deliverable;
+  assert.ok(priced.type === "price_update");
+  const text = events.filter((e) => e.type === "text").map((e) => e.delta).join("");
+  for (const c of priced.changes) assert.ok(text.includes(`${c.after.toFixed(2).replace(".", ",")} €`), `recap misses ${c.after}`);
 });
 
 test("demo scripts run through the real tools without a single tool error", async () => {

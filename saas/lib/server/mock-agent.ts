@@ -141,6 +141,79 @@ const SCRIPTS: Record<AgentId, Step[]> = {
   ],
 };
 
+// The Webmaster handles several everyday jobs: the demo picks a script from the request.
+const WEBMASTER_VARIANTS: { match: RegExp; steps: Step[] }[] = [
+  {
+    match: /code promo|coupon|code de r[ée]duction/i,
+    steps: [
+      { say: "Je vérifie les codes déjà actifs, puis je prépare le vôtre." },
+      { tool: "get_store_settings", input: {} },
+      {
+        tool: "propose_discount_code",
+        input: {
+          code: "BIENVENUE10",
+          kind: "percentage",
+          value: 10,
+          minimum_purchase: 30,
+          once_per_customer: true,
+          reason: "Un code de bienvenue pour transformer un premier visiteur en client, sans rogner la marge sur les petits paniers.",
+        },
+      },
+      {
+        say: "Le code **BIENVENUE10** est prêt :\n\n- **-10 %** sur toute la boutique\n- à partir de **30 € d'achat**\n- **une seule utilisation** par client\n\nIl ne sera actif qu'après votre validation. Je n'ai pas mis de date de fin puisque vous n'en avez pas donné : dites-le-moi si vous voulez le limiter dans le temps. Prochaine étape : l'Agent Emailing peut l'annoncer dans un email de bienvenue.",
+      },
+    ],
+  },
+  {
+    match: /barre|bandeau|d[ée]filant/i,
+    steps: [
+      { say: "Je regarde ce qui est déjà affiché en haut du site, puis je prépare la barre." },
+      { tool: "get_store_settings", input: {} },
+      {
+        tool: "propose_announcement_bar",
+        input: {
+          messages: ["Livraison offerte dès 49 € d'achat"],
+          scrolling: true,
+          reason: "Rappeler le seuil de livraison offerte sur toutes les pages incite à compléter son panier.",
+        },
+      },
+      {
+        say: "La **barre défilante** est prête, avec votre message : « Livraison offerte dès 49 € d'achat ».\n\nElle s'affichera en haut de toutes les pages une fois validée : vous pourrez la voir dans **Aperçu du site**. Je n'ai rien ajouté d'autre, pour ne pas annoncer une offre que vous n'avez pas confirmée. Si vous voulez faire défiler un deuxième message (délai d'expédition, code promo), donnez-le-moi.",
+      },
+    ],
+  },
+  {
+    match: /prix|tarif/i,
+    steps: [
+      { say: "Je lis le catalogue pour repérer les produits concernés, puis je calcule les nouveaux prix." },
+      { tool: "list_products", input: {} },
+      {
+        tool: "propose_price_rule",
+        input: {
+          label: "-15 % sur les Huiles",
+          reason: "Une baisse ciblée sur la catégorie Huiles, avec l'ancien prix barré pour rendre la remise visible.",
+          scope: { type: "category", category: "Huiles" },
+          operation: "percent",
+          value: -15,
+          rounding: "0.90",
+          show_compare_at: true,
+        },
+      },
+      {
+        say: "Voici la baisse de **15 % sur la catégorie Huiles**, arrondie à ,90 :\n\n- **Huile de nigelle** : 14,90 € → **12,90 €** (-13 %)\n- **Huile d'argan bio** : 16,90 € → **13,90 €** (-18 %)\n\nL'arrondi à ,90 fait que la baisse réelle s'écarte un peu des 15 % demandés. L'ancien prix restera affiché barré. Rien ne change tant que vous n'avez pas validé. Je ne connais pas vos coûts d'achat : vérifiez que la marge reste correcte à ces prix.",
+      },
+    ],
+  },
+];
+
+function scriptFor(request: ChatRequest): Step[] {
+  if (request.agentId === "webmaster") {
+    const variant = WEBMASTER_VARIANTS.find((v) => v.match.test(request.message));
+    if (variant) return variant.steps;
+  }
+  return SCRIPTS[request.agentId];
+}
+
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export async function runMockAgent({
@@ -157,7 +230,7 @@ export async function runMockAgent({
 }): Promise<void> {
   const ctx = { agentId: request.agentId, store: request.store };
   let wroteText = false;
-  for (const step of SCRIPTS[request.agentId]) {
+  for (const step of scriptFor(request)) {
     if (signal?.aborted) return;
     if ("say" in step) {
       if (wroteText) emit({ type: "text", delta: "\n\n" });

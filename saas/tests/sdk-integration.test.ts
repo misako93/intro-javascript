@@ -54,7 +54,17 @@ test("webmaster turn through the real SDK: request shape, streaming, tool loop",
   assert.ok(first.body.system.includes("Agent Webmaster"));
   assert.deepEqual(
     first.body.tools.map((t: any) => t.name),
-    ["list_products", "get_product", "audit_catalog", "propose_product_update", "create_page"],
+    [
+      "list_products",
+      "get_product",
+      "get_store_settings",
+      "audit_catalog",
+      "propose_product_update",
+      "propose_price_rule",
+      "propose_discount_code",
+      "propose_announcement_bar",
+      "create_page",
+    ],
   );
   for (const tool of first.body.tools) {
     assert.equal(tool.eager_input_streaming, true);

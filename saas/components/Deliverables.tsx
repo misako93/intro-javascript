@@ -1,22 +1,29 @@
 "use client";
 
-import { CalendarDays, Check, ClipboardCheck, FileText, Gauge, Mail, Newspaper, PenLine, Video, X } from "lucide-react";
+import { CalendarDays, Check, ClipboardCheck, FileText, Gauge, Mail, Megaphone, Newspaper, PenLine, Tags, TicketPercent, UserRound, Video, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { AGENTS, agentById } from "@/lib/agents";
 import { useApp } from "@/lib/client/state";
 import { deliverableToText, emailHtml, formatPrice } from "@/lib/export";
 import {
   type AgentId,
+  type AnnouncementBar,
   DELIVERABLE_TYPE_LABELS,
   type Deliverable,
   deliverableTitle,
+  describeDiscount,
+  isStoreChange,
+  pendingChanges,
   PRODUCT_FIELD_LABELS,
-  type ProductUpdateDeliverable,
+  type StoreChange,
 } from "@/lib/types";
 import { CopyButton, Markdown, ScorePill, ScoreRing, StatusIcon } from "./ui";
 
 const TYPE_ICONS = {
   product_update: PenLine,
+  price_update: Tags,
+  discount: TicketPercent,
+  announcement: Megaphone,
   page: FileText,
   article: Newspaper,
   seo_audit: Gauge,
@@ -26,12 +33,38 @@ const TYPE_ICONS = {
   calendar: CalendarDays,
 } as const;
 
-const STATUS_LABELS = { pending: "À valider", approved: "Appliquée", rejected: "Refusée" } as const;
+const STATUS_LABELS = { pending: "À valider", approved: "Validé", rejected: "Refusé" } as const;
+
+/** The announcement bar as it shows at the top of the site. */
+export function AnnouncementPreview({ bar }: { bar: AnnouncementBar }) {
+  if (!bar.scrolling) {
+    return <div className="announce announce-static">{bar.messages.join("  ·  ")}</div>;
+  }
+  // Repeat the messages so the strip is always wider than its container,
+  // then play it twice in a row for a seamless loop.
+  const strip: string[] = [];
+  while (strip.length < 8) strip.push(...bar.messages);
+  return (
+    <div className="announce">
+      <div className="announce-track">
+        {[...strip, ...strip].map((message, index) => (
+          <span key={index} aria-hidden={index >= bar.messages.length}>{message}</span>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function metaLine(d: Deliverable): string {
   switch (d.type) {
     case "product_update":
       return d.changes.map((c) => PRODUCT_FIELD_LABELS[c.field]).join(" · ");
+    case "price_update":
+      return `${d.changes.length} prix modifié${d.changes.length > 1 ? "s" : ""}`;
+    case "discount":
+      return describeDiscount(d.discount);
+    case "announcement":
+      return d.bar.messages.join(" · ");
     case "page":
       return `/pages/${d.slug}`;
     case "article":
@@ -49,7 +82,7 @@ function metaLine(d: Deliverable): string {
   }
 }
 
-function DecisionButtons({ d }: { d: ProductUpdateDeliverable }) {
+function DecisionButtons({ d }: { d: StoreChange }) {
   const { decide } = useApp();
   if (d.status !== "pending") return null;
   return (
@@ -87,12 +120,12 @@ export function DeliverableCard({ d, onOpen, showAgent = false }: { d: Deliverab
         <div className="deliverable-kicker">
           {DELIVERABLE_TYPE_LABELS[d.type]}
           {showAgent && <span> · {agent.name}</span>}
-          {d.type === "product_update" && <span className={`status-pill status-${d.status}`}>{STATUS_LABELS[d.status]}</span>}
+          {isStoreChange(d) && <span className={`status-pill status-${d.status}`}>{STATUS_LABELS[d.status]}</span>}
           {d.type === "seo_audit" && <ScorePill score={d.score} />}
         </div>
         <div className="deliverable-title">{deliverableTitle(d)}</div>
         <div className="deliverable-meta">{metaLine(d)}</div>
-        {d.type === "product_update" && <DecisionButtons d={d} />}
+        {isStoreChange(d) && <DecisionButtons d={d} />}
       </div>
     </div>
   );
@@ -143,6 +176,75 @@ function DetailBody({ d }: { d: Deliverable }) {
               </div>
             </div>
           ))}
+        </>
+      );
+    case "price_update":
+      return (
+        <>
+          <p className="reason"><strong>Pourquoi ce changement :</strong> {d.reason}</p>
+          <div className="table-wrap">
+            <table className="table">
+              <thead><tr><th>Produit</th><th>Prix actuel</th><th>Nouveau prix</th><th>Variation</th></tr></thead>
+              <tbody>
+                {d.changes.map((c) => {
+                  const variation = Math.round(((c.after - c.before) / c.before) * 100);
+                  return (
+                    <tr key={c.productId}>
+                      <td>{c.productTitle}</td>
+                      <td className="nowrap">{formatPrice(c.before)}</td>
+                      <td className="nowrap"><strong>{formatPrice(c.after)}</strong></td>
+                      <td className={`nowrap ${variation < 0 ? "tone-text-ok" : "tone-text-warn"}`}>{variation > 0 ? "+" : ""}{variation} %</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <p className="muted">
+            {d.changes.some((c) => c.compareAtAfter !== null)
+              ? "L'ancien prix sera affiché barré à côté du nouveau. "
+              : ""}
+            Les prix sont calculés par l'application à partir de la règle, pas estimés par l'IA. Vérifiez votre marge avant de valider.
+          </p>
+        </>
+      );
+    case "discount":
+      return (
+        <>
+          <p className="reason"><strong>À quoi sert ce code :</strong> {d.reason}</p>
+          <div className="coupon">
+            <span className="coupon-code">{d.discount.code}</span>
+            <span className="coupon-rule">{describeDiscount(d.discount)}</span>
+          </div>
+          <dl className="seo-fields">
+            <dt>Réduction</dt>
+            <dd>{d.discount.kind === "percentage" ? `${d.discount.value} %` : d.discount.kind === "fixed_amount" ? formatPrice(d.discount.value) : "Livraison offerte"}</dd>
+            <dt>S'applique à</dt>
+            <dd>{d.discount.appliesTo}</dd>
+            <dt>Minimum d'achat</dt>
+            <dd>{d.discount.minimumPurchase > 0 ? formatPrice(d.discount.minimumPurchase) : "Aucun"}</dd>
+            <dt>Utilisation</dt>
+            <dd>{d.discount.oncePerCustomer ? "Une fois par client" : "Sans limite par client"}</dd>
+            <dt>Fin de validité</dt>
+            <dd>{d.discount.endsOn ? d.discount.endsOn.split("-").reverse().join("/") : "Pas de date de fin"}</dd>
+          </dl>
+        </>
+      );
+    case "announcement":
+      return (
+        <>
+          <p className="reason"><strong>Pourquoi cette annonce :</strong> {d.reason}</p>
+          <div className="announce-frame">
+            <AnnouncementPreview bar={d.bar} />
+            <div className="announce-frame-body">{store.name}</div>
+          </div>
+          <dl className="seo-fields">
+            <dt>Affichage</dt>
+            <dd>{d.bar.scrolling ? "Barre défilante, en haut de toutes les pages" : "Barre fixe, en haut de toutes les pages"}</dd>
+            <dt>{d.bar.messages.length > 1 ? "Messages" : "Message"}</dt>
+            {d.bar.messages.map((message) => <dd key={message}>{message}</dd>)}
+            {d.bar.link && (<><dt>Lien au clic</dt><dd>{d.bar.link}</dd></>)}
+          </dl>
         </>
       );
     case "page":
@@ -246,6 +348,16 @@ function DetailBody({ d }: { d: Deliverable }) {
       return (
         <>
           <div className="pills"><span className="pill">{d.platform}</span><span className="pill">{d.durationSeconds} secondes</span><span className="pill">{d.scenes.length} plans</span></div>
+          {d.presenter && (
+            <div className="presenter">
+              <UserRound size={18} />
+              <div>
+                <span>Présentateur généré par IA</span>
+                {d.presenter}
+                <em>Ce script est un brief pour un outil de génération vidéo : l'application ne produit pas la vidéo. À la publication, signalez-la comme contenu généré par IA.</em>
+              </div>
+            </div>
+          )}
           <div className="hook"><span>Accroche — 2 premières secondes</span>{d.hook}</div>
           <div className="table-wrap">
             <table className="table">
@@ -263,6 +375,10 @@ function DetailBody({ d }: { d: Deliverable }) {
             </table>
           </div>
           <div className="script-foot">
+            <div className="voiceover">
+              <div><span>Voix off complète</span>{d.scenes.map((s) => s.voiceover).filter(Boolean).join(" ")}</div>
+              <CopyButton text={d.scenes.map((s) => s.voiceover).filter(Boolean).join(" ")} label="Copier la voix off" />
+            </div>
             <div><span>Appel à l&apos;action</span>{d.cta}</div>
             <div><span>Légende</span>{d.caption}</div>
             <div><span>Hashtags</span>{d.hashtags.map((h) => `#${h}`).join(" ")}</div>
@@ -310,7 +426,7 @@ export function DeliverableModal({ id, onClose }: { id: string; onClose: () => v
           <div>
             <div className="deliverable-kicker" style={{ color: agent.color }}>
               {DELIVERABLE_TYPE_LABELS[d.type]} · {agent.name}
-              {d.type === "product_update" && <span className={`status-pill status-${d.status}`}>{STATUS_LABELS[d.status]}</span>}
+              {isStoreChange(d) && <span className={`status-pill status-${d.status}`}>{STATUS_LABELS[d.status]}</span>}
             </div>
             <h2>{deliverableTitle(d)}</h2>
           </div>
@@ -322,7 +438,7 @@ export function DeliverableModal({ id, onClose }: { id: string; onClose: () => v
         <div className="modal-body">
           <DetailBody d={d} />
         </div>
-        {d.type === "product_update" && d.status === "pending" && (
+        {isStoreChange(d) && d.status === "pending" && (
           <footer className="modal-foot">
             <span className="muted">Rien n&apos;est modifié dans la boutique tant que vous n&apos;avez pas validé.</span>
             <DecisionButtons d={d} />
@@ -337,7 +453,7 @@ export function DeliverablesView({ onOpen }: { onOpen: (id: string) => void }) {
   const { state } = useApp();
   const [filter, setFilter] = useState<AgentId | "all" | "pending">("all");
   const sorted = [...state.deliverables].sort((a, b) => b.createdAt - a.createdAt);
-  const pending = sorted.filter((d) => d.type === "product_update" && d.status === "pending");
+  const pending = pendingChanges(sorted);
   const shown = filter === "all" ? sorted : filter === "pending" ? pending : sorted.filter((d) => d.agentId === filter);
   return (
     <div className="page">

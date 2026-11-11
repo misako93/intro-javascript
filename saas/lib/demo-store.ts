@@ -7,6 +7,8 @@ export function createDemoStore(): StoreState {
     name: "Maison Nour",
     url: "https://maison-nour.example",
     tagline: "Soins naturels et trésors d'Orient, sélectionnés avec soin",
+    discounts: [],
+    announcement: null,
     products: [
       {
         id: "p1",
