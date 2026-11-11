@@ -31,6 +31,8 @@ Sans clé API, l'application démarre en **mode démo** : les agents rejouent un
    - `ACCESS_CODE` : un code de votre choix. Il sera demandé à l'ouverture, pour que personne d'autre ne consomme votre crédit API.
 4. **Deploy**.
 
+Un tour d'agent peut durer plus d'une minute : la route `/api/chat` demande jusqu'à 300 secondes (`maxDuration`). Si Vercel refuse cette valeur au déploiement, activer **Fluid Compute** dans les réglages du projet.
+
 Vercel déploie la branche par défaut du dépôt : le dossier `saas/` doit donc s'y trouver (fusionner la pull request), ou bien choisir cette branche comme branche de production dans les réglages du projet.
 
 ## Variables d'environnement
@@ -59,8 +61,17 @@ Le nom du produit se change dans `lib/config.ts`.
 ## Tests
 
 ```bash
-npm test          # outils, audit, boucle de l'agent (Claude simulé), garde-fous réseau
+npm test          # outils, audit, boucle de l'agent, garde-fous réseau
 npm run typecheck
+```
+
+`tests/sdk-integration.test.ts` fait tourner le vrai SDK Claude et la vraie boucle d'agent contre un faux serveur local (`tests/fake-claude.ts`) qui parle le même protocole de streaming que l'API. Il vérifie la requête réellement envoyée et la lecture du flux, pas la qualité des réponses du modèle.
+
+Pour essayer l'interface hors mode démo sans dépenser de crédit :
+
+```bash
+FAKE_PORT=4010 npx tsx tests/fake-claude.ts
+ANTHROPIC_BASE_URL=http://127.0.0.1:4010 ANTHROPIC_API_KEY=test npm run dev
 ```
 
 ## Limites de ce MVP
