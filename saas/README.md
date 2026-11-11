@@ -22,6 +22,19 @@ npm run dev                  # http://localhost:3000
 
 Sans clé API, l'application démarre en **mode démo** : les agents rejouent un scénario préenregistré (un bandeau l'indique à l'écran). Les outils, les livrables et la validation fonctionnent comme en réel.
 
+## Lancer sur son ordinateur avec Claude Code
+
+Dans une conversation Claude Code ouverte sur un dossier de l'ordinateur, coller :
+
+```
+Récupère le projet https://github.com/misako93/intro-javascript, branche claude/claude-code-vs-n8n-6ftwem, et va dans le dossier saas. Lis saas/README.md.
+Trouve ma clé API Claude (elle commence par sk-ant-) dans mon dossier Téléchargements ou dans mon dossier Claude, sans jamais l'afficher. Crée le fichier saas/.env.local avec ANTHROPIC_API_KEY=<la clé>.
+Lance npm install puis npm run dev, et ouvre http://localhost:3000.
+Teste une demande par agent avec les boutons de suggestion, puis les demandes de prix, de code promo et de barre défilante du Webmaster. Corrige ce qui ne marche pas et dis-moi ce que tu as trouvé.
+```
+
+`.env.local` n'est jamais envoyé sur GitHub : la clé reste sur l'ordinateur.
+
 ## Mettre en ligne sur Vercel
 
 1. Sur [vercel.com](https://vercel.com), **Add New → Project** et importer ce dépôt GitHub.
