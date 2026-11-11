@@ -4,7 +4,7 @@ import { ArrowRight, Check, LoaderCircle, MessageSquarePlus, Send, Square, X } f
 import { useEffect, useRef, useState } from "react";
 import { agentById } from "@/lib/agents";
 import { useApp } from "@/lib/client/state";
-import type { AgentId, ChatMessage, MessagePart } from "@/lib/types";
+import { type AgentId, type ChatMessage, type MessagePart, messageText } from "@/lib/types";
 import { DeliverableCard } from "./Deliverables";
 import { AgentIcon, Markdown } from "./ui";
 
@@ -80,6 +80,9 @@ export function AgentView({ agentId, onOpen }: { agentId: AgentId; onOpen: (id: 
   };
 
   const deliverables = state.deliverables.filter((d) => d.agentId === agentId).sort((a, b) => b.createdAt - a.createdAt);
+  // Once a conversation has started, keep the unused suggestions one click away.
+  const asked = new Set(messages.filter((m) => m.role === "user").map((m) => messageText(m)));
+  const quickSuggestions = messages.length > 0 && !isBusy ? agent.suggestions.filter((s) => !asked.has(s)) : [];
 
   return (
     <div className="agent-view">
@@ -133,6 +136,16 @@ export function AgentView({ agentId, onOpen }: { agentId: AgentId; onOpen: (id: 
             </div>
           )}
         </div>
+
+        {quickSuggestions.length > 0 && (
+          <div className="quick" aria-label="Suggestions">
+            {quickSuggestions.map((s) => (
+              <button type="button" key={s} className="chip" title={s} onClick={() => submit(s)}>
+                {s}
+              </button>
+            ))}
+          </div>
+        )}
 
         <form
           className="composer"
