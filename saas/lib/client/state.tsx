@@ -6,6 +6,7 @@ import { applyChange } from "../store-changes";
 import {
   AGENT_IDS,
   type AgentId,
+  type BrandBrief,
   type ChatMessage,
   type ChatRequest,
   DELIVERABLE_TYPE_LABELS,
@@ -31,6 +32,7 @@ type Action =
   | { type: "stream_event"; agentId: AgentId; id: string; event: StreamEvent }
   | { type: "turn_end"; agentId: AgentId; id: string; error?: string }
   | { type: "decide"; id: string; decision: "approved" | "rejected" }
+  | { type: "update_brand"; brand: Partial<BrandBrief> }
   | { type: "clear_chat"; agentId: AgentId }
   | { type: "reset" };
 
@@ -55,6 +57,8 @@ export function reducer(state: AppState, action: Action): AppState {
       return action.state;
     case "reset":
       return initialState();
+    case "update_brand":
+      return { ...state, store: { ...state.store, brand: { ...state.store.brand, ...action.brand } } };
     case "clear_chat":
       return { ...state, chats: { ...state.chats, [action.agentId]: [] } };
     case "turn_start":
@@ -140,6 +144,7 @@ function loadState(): AppState | null {
     // Workspaces saved by an earlier version have no promo codes or announcement bar yet.
     saved.store.discounts ??= [];
     saved.store.announcement ??= null;
+    saved.store.brand ??= createDemoStore().brand;
     // A reload interrupts any turn that was streaming.
     for (const agentId of AGENT_IDS) {
       saved.chats[agentId] = (saved.chats[agentId] ?? []).map((m) => ({
@@ -164,6 +169,7 @@ interface AppContextValue {
   send: (agentId: AgentId, text: string) => void;
   stop: (agentId: AgentId) => void;
   decide: (id: string, decision: "approved" | "rejected") => void;
+  updateBrand: (brand: Partial<BrandBrief>) => void;
   clearChat: (agentId: AgentId) => void;
   reset: () => void;
   submitAccessCode: (code: string) => Promise<boolean>;
@@ -306,6 +312,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const stop = useCallback((agentId: AgentId) => aborters.current[agentId]?.abort(), []);
   const decide = useCallback((id: string, decision: "approved" | "rejected") => dispatch({ type: "decide", id, decision }), []);
+  const updateBrand = useCallback((brand: Partial<BrandBrief>) => dispatch({ type: "update_brand", brand }), []);
   const clearChat = useCallback((agentId: AgentId) => {
     aborters.current[agentId]?.abort();
     dispatch({ type: "clear_chat", agentId });
@@ -325,8 +332,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ state, ready, status, busy, send, stop, decide, clearChat, reset, submitAccessCode }),
-    [state, ready, status, busy, send, stop, decide, clearChat, reset, submitAccessCode],
+    () => ({ state, ready, status, busy, send, stop, decide, updateBrand, clearChat, reset, submitAccessCode }),
+    [state, ready, status, busy, send, stop, decide, updateBrand, clearChat, reset, submitAccessCode],
   );
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }

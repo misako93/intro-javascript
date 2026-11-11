@@ -94,11 +94,12 @@ test("create_email snapshots featured products and defaults the button to the sh
   const ctx = { agentId: "email" as const, store: createDemoStore() };
   const result = await executeTool(
     "create_email",
-    { name: "Test", subject: "Objet", preheader: "Aperçu", headline: "Titre", paragraphs: ["Un", "Deux"], cta_label: "Voir", featured_product_ids: ["p8"] },
+    { name: "Test", subject: "Objet", alt_subject: " Objet B ", preheader: "Aperçu", headline: "Titre", paragraphs: ["Un", "Deux"], cta_label: "Voir", featured_product_ids: ["p8"] },
     ctx,
   );
   const d = result.deliverable;
   assert.ok(d && d.type === "email");
+  assert.equal(d.altSubject, "Objet B");
   assert.equal(d.ctaUrl, "https://maison-nour.example");
   assert.deepEqual(d.products, [{ title: "Coffret hammam", price: 29.9, emoji: "🎁" }]);
 });
@@ -328,6 +329,23 @@ test("prompts name the agent and the shop, and carry the workspace snapshot", ()
   const prompt = systemPrompt("seo", store);
   assert.ok(prompt.includes("Agent SEO") && prompt.includes("Maison Nour"));
   assert.equal(prompt, systemPrompt("seo", store), "system prompt must be stable for caching");
+
+  // Every agent gets the client's brand brief, its own method and the shared writing rules.
+  const markers = { webmaster: "### Fiches produits", seo: "### Balises", email: "### Séquences", social: "### Vidéos courtes" } as const;
+  for (const agentId of AGENT_IDS) {
+    const p = systemPrompt(agentId, store);
+    assert.ok(p.includes(store.brand.voice) && p.includes(store.brand.facts) && p.includes(store.brand.avoid), `${agentId}: brand brief missing`);
+    assert.ok(p.includes(markers[agentId]), `${agentId}: method missing`);
+    assert.ok(p.includes("Pars du client, pas du produit"), `${agentId}: writing rules missing`);
+    for (const [other, marker] of Object.entries(markers)) {
+      if (other !== agentId) assert.equal(p.includes(marker), false, `${agentId} must not carry the ${other} method`);
+    }
+  }
+  // The brief is the client's: editing it changes what the agent is told, and gaps are said, not filled.
+  const edited = { ...store, brand: { ...store.brand, voice: "On tutoie, ton complice.", facts: "" } };
+  const editedPrompt = systemPrompt("email", edited);
+  assert.ok(editedPrompt.includes("Sa voix : On tutoie, ton complice."));
+  assert.ok(editedPrompt.includes("Informations pratiques vérifiées : non renseigné par le client"));
   const content = buildUserContent("Optimise", { pendingCount: 2, deliverables: [{ type: "Email", title: "Bienvenue 1" }] }, new Date("2026-11-11T08:00:00Z"));
   assert.ok(content.includes("mercredi 11 novembre 2026"));
   assert.ok(content.includes("en attente de validation : 2"));

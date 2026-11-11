@@ -42,10 +42,23 @@ export interface AnnouncementBar {
   scrolling: boolean;
 }
 
+/** What every agent knows about the brand before writing a line. Written by the client. */
+export interface BrandBrief {
+  audience: string;
+  voice: string;
+  promise: string;
+  /** Verified practical facts (delivery, returns, payment, origin): the only ones agents may state. */
+  facts: string;
+  avoid: string;
+}
+
+export const EMPTY_BRAND: BrandBrief = { audience: "", voice: "", promise: "", facts: "", avoid: "" };
+
 export interface StoreState {
   name: string;
   url: string;
   tagline: string;
+  brand: BrandBrief;
   products: Product[];
   discounts: Discount[];
   announcement: AnnouncementBar | null;
@@ -151,6 +164,8 @@ export interface EmailDeliverable extends DeliverableBase {
   sequence: string;
   sendTiming: string;
   subject: string;
+  /** A second subject line to A/B test. Empty if none. */
+  altSubject: string;
   preheader: string;
   headline: string;
   paragraphs: string[];

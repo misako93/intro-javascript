@@ -64,7 +64,9 @@ Vercel déploie la branche par défaut du dépôt : le dossier `saas/` doit donc
 - `app/api/chat/route.ts` reçoit le message, la boutique et l'historique, et renvoie un flux d'événements (texte, activité des outils, livrables).
 - `lib/server/run-agent.ts` contient la boucle de l'agent : Claude répond en streaming, appelle des outils, lit leurs résultats et recommence jusqu'à avoir terminé.
 - `lib/server/tools.ts` définit les outils de chaque agent. Chaque entrée est validée avant exécution ; une entrée invalide est renvoyée à Claude pour correction.
-- `lib/server/prompts.ts` contient les consignes de chaque agent (rôle, règles de contenu, interdiction d'inventer des chiffres ou des allégations santé).
+- `lib/server/playbooks.ts` contient la méthode de chaque agent, en français et sans code : structure d'une fiche produit, règles des balises et des articles SEO, séquences d'emails, construction d'une vidéo courte. **C'est le fichier à modifier pour changer la façon d'écrire des agents.**
+- Le **brief de marque** (écran « Brief de marque ») dit à qui la boutique parle, sa voix, ce qui la distingue, les informations pratiques vérifiées et ce qu'il ne faut jamais écrire. Les quatre agents le reçoivent à chaque demande, et n'affirment rien sur la livraison ou les retours qui n'y figure pas.
+- `lib/server/prompts.ts` assemble le tout : mission, brief de marque, méthode, règles d'écriture, interdits (inventer des chiffres ou des avis, fausse urgence, allégations santé).
 - `lib/audit.ts` calcule les scores SEO avec des règles fixes : le score affiché ne vient jamais du modèle.
 - Les prix en masse suivent le même principe : l'agent choisit une règle (« -15 % sur la catégorie Huiles, arrondi à ,90 ») et c'est `propose_price_rule` qui calcule chaque prix. L'écran de validation montre la variation réelle après arrondi.
 - `lib/store-changes.ts` applique à la boutique les changements validés : fiche, prix, code promo, barre d'annonce. L'écran « Aperçu du site » les montre aussitôt.

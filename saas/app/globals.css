@@ -324,6 +324,14 @@ h1, h2, h3, h4, p { margin: 0; }
 .sf-price { display: flex; align-items: baseline; gap: 8px; margin-top: 3px; }
 .sf-price s, .product-sub s { color: var(--faint); font-size: 13px; }
 
+/* ---- Brand brief ---------------------------------------------------- */
+.brief { display: flex; flex-direction: column; gap: 20px; }
+.brief-field { max-width: 780px; display: flex; flex-direction: column; gap: 4px; }
+.brief-field label { font-weight: 600; }
+.brief-field small { color: var(--muted); font-size: 13.5px; }
+.brief-field textarea { margin-top: 5px; width: 100%; border: 1px solid var(--border); border-radius: 11px; padding: 11px 13px; font: inherit; color: inherit; line-height: 1.5; resize: vertical; min-height: 88px; background: var(--surface); }
+.brief-field textarea:focus { outline: none; border-color: #9aa8c2; }
+
 /* ---- Catalogue ------------------------------------------------------ */
 .product-list { display: flex; flex-direction: column; gap: 10px; }
 .product { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }

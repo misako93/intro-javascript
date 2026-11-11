@@ -7,6 +7,18 @@ export function createDemoStore(): StoreState {
     name: "Maison Nour",
     url: "https://maison-nour.example",
     tagline: "Soins naturels et trésors d'Orient, sélectionnés avec soin",
+    brand: {
+      audience:
+        "Des femmes de 25 à 45 ans, en France et en Belgique, attentives à la composition de leurs soins et à l'origine de ce qu'elles achètent. Elles achètent pour elles et pour offrir, comparent avant de commander et se méfient des promesses miracles.",
+      voice:
+        "Chaleureuse, simple et précise, comme une amie qui s'y connaît. On vouvoie. Des phrases courtes et des mots concrets, sans jargon ni points d'exclamation en série.",
+      promise:
+        "Une petite sélection de moins de vingt produits, choisis et utilisés par les fondatrices, avec la composition et l'origine indiquées pour chacun.",
+      facts:
+        "Expédition depuis la France sous 48 heures ouvrées. Livraison offerte dès 49 € d'achat. Retours acceptés pendant 14 jours. Paiement sécurisé par carte bancaire.",
+      avoid:
+        "Toute promesse de santé ou de résultat garanti. Les mots « miracle », « anti-âge », « détox ». Les comparaisons qui dénigrent d'autres marques.",
+    },
     discounts: [],
     announcement: null,
     products: [

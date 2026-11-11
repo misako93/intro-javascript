@@ -326,6 +326,7 @@ function DetailBody({ d }: { d: Deliverable }) {
           </div>
           <div className="serp-counts">
             Objet <CharCount value={d.subject} max={45} />
+            {d.altSubject && <> · Objet B à tester : <strong>{d.altSubject}</strong></>}
             {d.sequence && <> · {d.sequence}</>}
             {d.sendTiming && <> · Envoi : {d.sendTiming}</>}
           </div>

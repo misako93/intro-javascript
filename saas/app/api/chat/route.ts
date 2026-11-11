@@ -2,7 +2,7 @@ import * as z from "zod";
 import { accessCodeMatches, isDemoMode } from "@/lib/server/env";
 import { runMockAgent } from "@/lib/server/mock-agent";
 import { friendlyError, runAgent } from "@/lib/server/run-agent";
-import { AGENT_IDS, type ChatRequest, type StreamEvent } from "@/lib/types";
+import { AGENT_IDS, type ChatRequest, EMPTY_BRAND, type StreamEvent } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -46,6 +46,15 @@ const ChatSchema = z.object({
     name: z.string().max(120),
     url: z.string().max(300),
     tagline: z.string().max(300),
+    brand: z
+      .object({
+        audience: z.string().max(1500),
+        voice: z.string().max(1500),
+        promise: z.string().max(1500),
+        facts: z.string().max(1500),
+        avoid: z.string().max(1500),
+      })
+      .default(EMPTY_BRAND),
     products: z.array(ProductSchema).max(60),
     discounts: z.array(DiscountSchema).max(50).default([]),
     announcement: z
