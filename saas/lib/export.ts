@@ -78,6 +78,10 @@ export function deliverableToText(d: Deliverable, storeName: string): string {
             .map((r) => `${r.title} — ${r.score}/100\n${r.issues.map((i) => `  - ${i.label} : ${i.detail}`).join("\n") || "  - Rien à signaler"}`)
             .join("\n\n")}`
         : `Audit SEO — ${d.target} — ${d.score}/100\n\n${d.checks.map((c) => `[${c.status === "ok" ? "OK" : c.status === "warn" ? "À améliorer" : "À corriger"}] ${c.label} : ${c.detail}`).join("\n")}`;
+    case "seo_report":
+      return `${d.title}\n${d.period}\n\n${d.summary}\n\nPlan d'action\n${d.actions
+        .map((a, i) => `${i + 1}. [Priorité ${a.priority}] ${a.action} — ${a.target}\n   ${a.reason}`)
+        .join("\n")}`;
     case "email":
       return emailHtml(d, storeName);
     case "social_post":

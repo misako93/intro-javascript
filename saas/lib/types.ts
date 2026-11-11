@@ -54,6 +54,31 @@ export interface BrandBrief {
 
 export const EMPTY_BRAND: BrandBrief = { audience: "", voice: "", promise: "", facts: "", avoid: "" };
 
+export interface SearchQueryRow {
+  query: string;
+  clicks: number;
+  impressions: number;
+  /** Clicks divided by impressions, between 0 and 1. */
+  ctr: number;
+  position: number;
+}
+
+export interface SearchPageRow {
+  url: string;
+  clicks: number;
+  impressions: number;
+  ctr: number;
+  position: number;
+}
+
+/** Google Search Console performance data: sample data, or the client's own export. */
+export interface SearchPerformance {
+  source: "demo" | "import";
+  period: string;
+  queries: SearchQueryRow[];
+  pages: SearchPageRow[];
+}
+
 export interface StoreState {
   name: string;
   url: string;
@@ -62,6 +87,7 @@ export interface StoreState {
   products: Product[];
   discounts: Discount[];
   announcement: AnnouncementBar | null;
+  search: SearchPerformance | null;
 }
 
 export type ProductField =
@@ -158,6 +184,21 @@ export interface SeoAuditDeliverable extends DeliverableBase {
   rows: { productId: string; title: string; score: number; issues: AuditCheck[] }[];
 }
 
+export interface SeoReportDeliverable extends DeliverableBase {
+  type: "seo_report";
+  title: string;
+  period: string;
+  source: "demo" | "import";
+  /** Figures and tables computed from the Search Console data, not written by the model. */
+  totals: { clicks: number; impressions: number; ctr: number; position: number; brandShare: number };
+  quickWins: SearchQueryRow[];
+  lowCtr: SearchQueryRow[];
+  topPages: SearchPageRow[];
+  /** The agent's reading of the figures and its action plan. */
+  summary: string;
+  actions: { priority: "haute" | "moyenne" | "basse"; action: string; target: string; reason: string }[];
+}
+
 export interface EmailDeliverable extends DeliverableBase {
   type: "email";
   name: string;
@@ -212,6 +253,7 @@ export type Deliverable =
   | PageDeliverable
   | ArticleDeliverable
   | SeoAuditDeliverable
+  | SeoReportDeliverable
   | EmailDeliverable
   | SocialPostDeliverable
   | VideoScriptDeliverable
@@ -320,6 +362,7 @@ export function deliverableTitle(d: Deliverable): string {
     case "article":
     case "calendar":
     case "video_script":
+    case "seo_report":
       return d.title;
     case "seo_audit":
       return d.scope === "catalog" ? "Audit SEO du catalogue" : `Audit SEO — ${d.target}`;
@@ -338,6 +381,7 @@ export const DELIVERABLE_TYPE_LABELS: Record<Deliverable["type"], string> = {
   page: "Page",
   article: "Article de blog",
   seo_audit: "Audit SEO",
+  seo_report: "Rapport SEO",
   email: "Email",
   social_post: "Post",
   video_script: "Script vidéo",

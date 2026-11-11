@@ -1,6 +1,6 @@
 "use client";
 
-import { BookOpenText, Eye, FolderOpen, LayoutDashboard, LoaderCircle, Lock, RotateCcw, Store } from "lucide-react";
+import { BookOpenText, ChartLine, Eye, FolderOpen, LayoutDashboard, LoaderCircle, Lock, RotateCcw, Store } from "lucide-react";
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { AGENTS } from "@/lib/agents";
 import { AppProvider, useApp } from "@/lib/client/state";
@@ -10,15 +10,16 @@ import { AgentView } from "./AgentView";
 import { BrandView } from "./BrandView";
 import { Dashboard } from "./Dashboard";
 import { DeliverableModal, DeliverablesView } from "./Deliverables";
+import { SearchConsoleView } from "./SearchConsoleView";
 import { Storefront } from "./Storefront";
 import { StoreView } from "./StoreView";
 import { AgentIcon } from "./ui";
 
-type View = "dashboard" | "brand" | "store" | "storefront" | "deliverables" | `agent:${AgentId}`;
+type View = "dashboard" | "brand" | "store" | "storefront" | "search" | "deliverables" | `agent:${AgentId}`;
 
 function parseView(hash: string): View {
   const value = hash.replace(/^#\/?/, "");
-  if (value === "brand" || value === "store" || value === "storefront" || value === "deliverables") return value;
+  if (value === "brand" || value === "store" || value === "storefront" || value === "search" || value === "deliverables") return value;
   const agent = AGENT_IDS.find((id) => value === `agent:${id}`);
   return agent ? `agent:${agent}` : "dashboard";
 }
@@ -115,6 +116,9 @@ function Shell() {
           <button type="button" className={`nav-item ${view === "storefront" ? "active" : ""}`} onClick={() => navigate("storefront")}>
             <Eye size={18} /> <span>Aperçu du site</span>
           </button>
+          <button type="button" className={`nav-item ${view === "search" ? "active" : ""}`} onClick={() => navigate("search")}>
+            <ChartLine size={18} /> <span>Search Console</span>
+          </button>
           <button type="button" className={`nav-item ${view === "deliverables" ? "active" : ""}`} onClick={() => navigate("deliverables")}>
             <FolderOpen size={18} /> <span>Livrables</span>
             {pendingCount > 0 && <span className="badge nav-trailing">{pendingCount}</span>}
@@ -158,6 +162,8 @@ function Shell() {
           <Storefront />
         ) : view === "brand" ? (
           <BrandView />
+        ) : view === "search" ? (
+          <SearchConsoleView />
         ) : view === "deliverables" ? (
           <DeliverablesView onOpen={setOpenDeliverable} />
         ) : (

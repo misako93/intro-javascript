@@ -9,6 +9,7 @@ import { buildUserContent, systemPrompt } from "../lib/server/prompts";
 import { type AgentStream, type CreateStream, friendlyError, runAgent } from "../lib/server/run-agent";
 import { analyzeHtml, assertPublicUrl, isBlockedAddress, PageAuditError } from "../lib/server/seo-page";
 import { executeTool, roundPrice, toolParamsFor } from "../lib/server/tools";
+import { analyzeSearch, buildSearchPerformance, formatPercent, formatPosition, parseCsv, parseSearchCsv, SearchImportError } from "../lib/search";
 import { applyChange } from "../lib/store-changes";
 import { AGENT_IDS, type ChatRequest, describeDiscount, type StoreChange, type StreamEvent } from "../lib/types";
 
@@ -275,6 +276,104 @@ test("the Webmaster demo picks its script from the request", async () => {
   assert.ok(priced.type === "price_update");
   const text = events.filter((e) => e.type === "text").map((e) => e.delta).join("");
   for (const c of priced.changes) assert.ok(text.includes(`${c.after.toFixed(2).replace(".", ",")} €`), `recap misses ${c.after}`);
+});
+
+test("Search Console exports are read in French and in English, with quoted cells", () => {
+  assert.deepEqual(parseCsv('a,"b, c","d ""e"""\r\n1,2,3\n\n'), [["a", "b, c", 'd "e"'], ["1", "2", "3"]]);
+
+  const french = parseSearchCsv('\uFEFFRequêtes les plus fréquentes,Clics,Impressions,CTR,Position\n"savon d\'alep, 200 g",52,"8 200","0,63 %","14,6"\nhuile de nigelle,38,5400,0.7%,11.2\n');
+  assert.ok(french.kind === "queries");
+  assert.deepEqual(french.rows[0], { query: "savon d'alep, 200 g", clicks: 52, impressions: 8200, ctr: 52 / 8200, position: 14.6 });
+  assert.deepEqual(french.rows[1], { query: "huile de nigelle", clicks: 38, impressions: 5400, ctr: 38 / 5400, position: 11.2 });
+
+  const english = parseSearchCsv("Top pages,Clicks,Impressions,CTR,Position\nhttps://shop.test/a,10,200,5%,3.4\n");
+  assert.ok(english.kind === "pages");
+  assert.deepEqual(english.rows, [{ url: "https://shop.test/a", clicks: 10, impressions: 200, ctr: 0.05, position: 3.4 }]);
+
+  // The other tabs of the export (countries, devices, dates) are ignored.
+  assert.equal(parseSearchCsv("Pays,Clics,Impressions,CTR,Position\nFrance,1,2,50%,1\n").kind, "other");
+  assert.equal(parseSearchCsv("Date,Clics\n2026-01-01,3\n").kind, "other");
+  assert.equal(parseSearchCsv("").kind, "other");
+
+  const perf = buildSearchPerformance(
+    [
+      { name: "Pays.csv", text: "Pays,Clics,Impressions,CTR,Position\nFrance,1,2,50%,1\n" },
+      { name: "Pages.csv", text: "Top pages,Clicks,Impressions,CTR,Position\nhttps://shop.test/a,10,200,5%,3.4\n" },
+      { name: "Requêtes.csv", text: "Top queries,Clicks,Impressions,CTR,Position\npetite,1,10,10%,2\ngrande,5,900,0.5%,8\n" },
+    ],
+    "11 novembre 2026",
+  );
+  assert.equal(perf.source, "import");
+  assert.equal(perf.period, "Export importé le 11 novembre 2026");
+  assert.deepEqual(perf.queries.map((q) => q.query), ["grande", "petite"], "sorted by impressions");
+  assert.equal(perf.pages.length, 1);
+  assert.throws(() => buildSearchPerformance([{ name: "Pays.csv", text: "Pays,Clics,Impressions,CTR,Position\nFrance,1,2,50%,1\n" }], "x"), SearchImportError);
+});
+
+test("search findings: totals, brand share, queries within reach, weak click rates", () => {
+  const store = createDemoStore();
+  const insights = analyzeSearch(store.search!, store.name);
+  assert.deepEqual(insights.totals, { clicks: 753, impressions: 51830, ctr: 753 / 51830, position: 12.7, brandShare: 190 / 753 });
+  assert.deepEqual(insights.quickWins.slice(0, 3).map((q) => q.query), ["savon d'alep", "huile de nigelle", "ghassoul cheveux"]);
+  assert.ok(insights.quickWins.every((q) => q.position >= 4 && q.position <= 15 && !q.query.includes("maison nour")));
+  assert.deepEqual(insights.lowCtr.map((q) => q.query), ["miel de sidr", "coffret hammam cadeau", "miel de sidr yemen prix"]);
+  assert.deepEqual(insights.farBehind.slice(0, 2).map((q) => q.query), ["huile d'argan bio", "savon noir hammam"]);
+  assert.equal(insights.topQueries[0].query, "maison nour");
+  assert.equal(insights.topPages[0].url, "https://maison-nour.example/");
+  assert.equal(formatPercent(0.0145), "1,5 %");
+  assert.equal(formatPosition(12.66), "12,7");
+});
+
+test("the SEO report takes its figures from the data, and needs data to exist", async () => {
+  const store = createDemoStore();
+  const ctx = { agentId: "seo" as const, store };
+  const read = await executeTool("get_search_performance", {}, ctx);
+  const data = JSON.parse(read.content);
+  assert.equal(data.source, "données de démonstration");
+  assert.deepEqual(data.totals, { clicks: 753, impressions: 51830, ctr: "1,5 %", average_position: "12,7", share_of_clicks_from_brand_queries: "25,2 %" });
+  assert.equal(data.within_reach_positions_4_to_15[0].query, "savon d'alep");
+
+  const report = await executeTool(
+    "create_seo_report",
+    { title: "Rapport", summary: "Lecture.", actions: [{ priority: "haute", action: "Réécrire", target: "savon d'alep", reason: "8 200 impressions" }] },
+    ctx,
+  );
+  const d = report.deliverable;
+  assert.ok(d && d.type === "seo_report");
+  assert.equal(d.source, "demo");
+  assert.equal(d.totals.clicks, 753);
+  assert.equal(d.quickWins[0].query, "savon d'alep");
+  assert.equal(d.actions.length, 1);
+
+  const empty = { agentId: "seo" as const, store: { ...store, search: null } };
+  assert.equal((await executeTool("get_search_performance", {}, empty)).isError, true);
+  assert.equal((await executeTool("create_seo_report", { title: "x", summary: "x", actions: [] }, empty)).isError, true);
+  assert.equal((await executeTool("create_seo_report", { title: "x", summary: "x", actions: [] }, ctx)).isError, true);
+  // Only the SEO agent reads search data.
+  assert.equal((await executeTool("get_search_performance", {}, { agentId: "email", store })).isError, true);
+});
+
+test("the demo SEO report quotes the figures the data really gives", async () => {
+  const events: StreamEvent[] = [];
+  await runMockAgent({ request: request("seo", "Fais mon rapport SEO à partir des données Search Console"), emit: (e) => events.push(e), speed: 0 });
+  assert.deepEqual(events.filter((e) => e.type === "tool_end" && !e.ok), []);
+  const report = events.find((e) => e.type === "deliverable")!.deliverable;
+  assert.ok(report.type === "seo_report");
+  const plain = (text: string) => text.replace(/[\u00a0\u202f]/g, " ");
+  const chat = plain(events.filter((e) => e.type === "text").map((e) => e.delta).join(""));
+  const { totals } = report;
+  for (const figure of [formatPercent(totals.ctr), formatPosition(totals.position)]) {
+    assert.ok(chat.includes(plain(figure)), `chat recap misses ${figure}`);
+    assert.ok(plain(report.summary).includes(plain(figure)), `report summary misses ${figure}`);
+  }
+  assert.ok(plain(report.summary).includes(plain(totals.impressions.toLocaleString("fr-FR"))));
+  // Every query named in an action exists in the data, with the impressions quoted.
+  const store = createDemoStore();
+  for (const [query, impressions] of [["savon d'alep", "8 200"], ["huile de nigelle", "5 400"], ["huile d'argan bio", "6 100"], ["ghassoul cheveux", "3 600"]] as const) {
+    const row = store.search!.queries.find((q) => q.query === query)!;
+    assert.equal(plain(row.impressions.toLocaleString("fr-FR")), impressions);
+    assert.ok(report.actions.some((a) => a.target.includes(query) && plain(a.reason).includes(impressions)), query);
+  }
 });
 
 test("demo scripts run through the real tools without a single tool error", async () => {

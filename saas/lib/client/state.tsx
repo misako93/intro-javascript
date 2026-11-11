@@ -15,6 +15,7 @@ import {
   isStoreChange,
   messageText,
   pendingChanges,
+  type SearchPerformance,
   type StatusResponse,
   type StoreState,
   type StreamEvent,
@@ -33,6 +34,7 @@ type Action =
   | { type: "turn_end"; agentId: AgentId; id: string; error?: string }
   | { type: "decide"; id: string; decision: "approved" | "rejected" }
   | { type: "update_brand"; brand: Partial<BrandBrief> }
+  | { type: "set_search"; search: SearchPerformance | null }
   | { type: "clear_chat"; agentId: AgentId }
   | { type: "reset" };
 
@@ -59,6 +61,8 @@ export function reducer(state: AppState, action: Action): AppState {
       return initialState();
     case "update_brand":
       return { ...state, store: { ...state.store, brand: { ...state.store.brand, ...action.brand } } };
+    case "set_search":
+      return { ...state, store: { ...state.store, search: action.search } };
     case "clear_chat":
       return { ...state, chats: { ...state.chats, [action.agentId]: [] } };
     case "turn_start":
@@ -145,6 +149,7 @@ function loadState(): AppState | null {
     saved.store.discounts ??= [];
     saved.store.announcement ??= null;
     saved.store.brand ??= createDemoStore().brand;
+    if (saved.store.search === undefined) saved.store.search = createDemoStore().search;
     // A reload interrupts any turn that was streaming.
     for (const agentId of AGENT_IDS) {
       saved.chats[agentId] = (saved.chats[agentId] ?? []).map((m) => ({
@@ -170,6 +175,7 @@ interface AppContextValue {
   stop: (agentId: AgentId) => void;
   decide: (id: string, decision: "approved" | "rejected") => void;
   updateBrand: (brand: Partial<BrandBrief>) => void;
+  setSearch: (search: SearchPerformance | null) => void;
   clearChat: (agentId: AgentId) => void;
   reset: () => void;
   submitAccessCode: (code: string) => Promise<boolean>;
@@ -313,6 +319,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const stop = useCallback((agentId: AgentId) => aborters.current[agentId]?.abort(), []);
   const decide = useCallback((id: string, decision: "approved" | "rejected") => dispatch({ type: "decide", id, decision }), []);
   const updateBrand = useCallback((brand: Partial<BrandBrief>) => dispatch({ type: "update_brand", brand }), []);
+  const setSearch = useCallback((search: SearchPerformance | null) => dispatch({ type: "set_search", search }), []);
   const clearChat = useCallback((agentId: AgentId) => {
     aborters.current[agentId]?.abort();
     dispatch({ type: "clear_chat", agentId });
@@ -332,8 +339,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ state, ready, status, busy, send, stop, decide, updateBrand, clearChat, reset, submitAccessCode }),
-    [state, ready, status, busy, send, stop, decide, updateBrand, clearChat, reset, submitAccessCode],
+    () => ({ state, ready, status, busy, send, stop, decide, updateBrand, setSearch, clearChat, reset, submitAccessCode }),
+    [state, ready, status, busy, send, stop, decide, updateBrand, setSearch, clearChat, reset, submitAccessCode],
   );
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }

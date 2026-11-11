@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type Anthropic from "@anthropic-ai/sdk";
 import * as z from "zod";
 import { auditCatalog } from "../audit";
+import { analyzeSearch, formatPercent, formatPosition } from "../search";
 import { type AgentId, type Deliverable, type DeliverableDraft, describeDiscount, type Product, type ProductField, type StoreState } from "../types";
 import { analyzeHtml, fetchPublicHtml, PageAuditError } from "./seo-page";
 
@@ -169,6 +170,94 @@ const SPECS: ToolSpec[] = [
         if (error instanceof PageAuditError) return fail(error.message);
         throw error;
       }
+    },
+  }),
+
+  tool({
+    name: "get_search_performance",
+    label: "Lecture des données Search Console",
+    description:
+      "Renvoie les données Google Search Console de la boutique (requêtes, clics, impressions, taux de clic, position) et les constats calculés à partir d'elles : requêtes à portée de la première page, titres qui sous-performent, requêtes où la boutique est loin. À appeler avant tout rapport SEO, tout choix de mot-clé et toute priorisation.",
+    schema: z.object({}),
+    run: (_input, { store }) => {
+      if (!store.search) {
+        return fail("Aucune donnée Search Console n'est disponible. Dis au client de l'importer depuis l'écran « Search Console », et travaille par intention de recherche en attendant.");
+      }
+      const insights = analyzeSearch(store.search, store.name);
+      const row = (q: { query: string; clicks: number; impressions: number; ctr: number; position: number }) => ({
+        query: q.query,
+        clicks: q.clicks,
+        impressions: q.impressions,
+        ctr: formatPercent(q.ctr),
+        position: formatPosition(q.position),
+      });
+      return {
+        summary: `${store.search.queries.length} requêtes lues`,
+        content: JSON.stringify({
+          source: store.search.source === "demo" ? "données de démonstration" : "export importé par le client",
+          period: store.search.period,
+          totals: {
+            clicks: insights.totals.clicks,
+            impressions: insights.totals.impressions,
+            ctr: formatPercent(insights.totals.ctr),
+            average_position: formatPosition(insights.totals.position),
+            share_of_clicks_from_brand_queries: formatPercent(insights.totals.brandShare),
+          },
+          top_queries_by_clicks: insights.topQueries.map(row),
+          within_reach_positions_4_to_15: insights.quickWins.map(row),
+          well_ranked_but_low_click_rate: insights.lowCtr.map(row),
+          far_behind_beyond_position_15: insights.farBehind.map(row),
+          top_pages_by_clicks: insights.topPages.map((p) => ({
+            url: p.url,
+            clicks: p.clicks,
+            impressions: p.impressions,
+            ctr: formatPercent(p.ctr),
+            position: formatPosition(p.position),
+          })),
+        }),
+      };
+    },
+  }),
+
+  tool({
+    name: "create_seo_report",
+    label: "Rédaction du rapport SEO",
+    description:
+      "Crée le rapport SEO du client à partir des données Search Console. L'outil ajoute lui-même les chiffres clés et les tableaux : tu fournis la lecture et le plan d'action. Appelle d'abord get_search_performance. À appeler quand le client demande un rapport, un bilan ou un point sur son référencement.",
+    schema: z.object({
+      title: z.string().describe("Par exemple « Rapport SEO — 3 derniers mois »"),
+      summary: z.string().describe("Ta lecture en 3 à 5 phrases : où en est la boutique, ce qui pèse le plus, où est le gain le plus rapide. Cite uniquement des chiffres renvoyés par get_search_performance."),
+      actions: z
+        .array(
+          z.object({
+            priority: z.enum(["haute", "moyenne", "basse"]),
+            action: z.string().describe("Ce qu'il faut faire, concrètement"),
+            target: z.string().describe("La requête ou la page concernée"),
+            reason: z.string().describe("Pourquoi, avec le chiffre qui le justifie"),
+          }),
+        )
+        .describe("4 à 8 actions, classées de la plus rentable à la moins rentable"),
+    }),
+    run: (input, { store }) => {
+      if (!store.search) return fail("Aucune donnée Search Console : le rapport ne peut pas être établi. Dis au client de les importer.");
+      if (input.actions.length === 0) return fail("Le rapport doit contenir au moins une action.");
+      const insights = analyzeSearch(store.search, store.name);
+      return {
+        summary: `Rapport de ${input.actions.length} actions`,
+        content: JSON.stringify({ status: "livrable_cree" }),
+        deliverable: {
+          type: "seo_report",
+          title: input.title,
+          period: store.search.period,
+          source: store.search.source,
+          totals: insights.totals,
+          quickWins: insights.quickWins,
+          lowCtr: insights.lowCtr,
+          topPages: insights.topPages,
+          summary: input.summary,
+          actions: input.actions,
+        },
+      };
     },
   }),
 
@@ -609,7 +698,16 @@ const AGENT_TOOLS: Record<AgentId, string[]> = {
     "propose_announcement_bar",
     "create_page",
   ],
-  seo: ["list_products", "get_product", "audit_catalog", "audit_page", "propose_product_update", "create_article"],
+  seo: [
+    "list_products",
+    "get_product",
+    "get_search_performance",
+    "audit_catalog",
+    "audit_page",
+    "propose_product_update",
+    "create_article",
+    "create_seo_report",
+  ],
   email: ["list_products", "get_product", "get_store_settings", "create_email"],
   social: ["list_products", "get_product", "get_store_settings", "create_video_script", "create_social_post", "create_content_calendar"],
 };

@@ -29,10 +29,11 @@ export const AGENTS: AgentMeta[] = [
     id: "seo",
     name: "Agent SEO",
     role: "Vous rend visible sur Google",
-    description: "Audite votre catalogue ou une page, optimise titres et meta descriptions, rédige des articles de blog.",
+    description: "Audite votre catalogue, établit votre rapport à partir de la Search Console, optimise titres et meta descriptions, rédige des articles.",
     color: "#059669",
     suggestions: [
       "Fais un audit SEO complet de mon catalogue",
+      "Fais mon rapport SEO à partir des données Search Console",
       "Optimise les balises title et meta des 3 produits prioritaires",
       "Écris un article de blog : comment reconnaître un vrai savon d'Alep",
     ],

@@ -21,6 +21,56 @@ export function createDemoStore(): StoreState {
     },
     discounts: [],
     announcement: null,
+    // Invented figures, shaped like a Search Console export, so the SEO report can be shown.
+    search: {
+      source: "demo",
+      period: "3 derniers mois — données de démonstration",
+      queries: (
+        [
+          ["savon d'alep", 52, 8200, 14.6],
+          ["huile d'argan bio", 35, 6100, 15.8],
+          ["huile de nigelle", 38, 5400, 11.2],
+          ["ghassoul cheveux", 22, 3600, 12.9],
+          ["savon noir hammam", 8, 3100, 19.6],
+          ["miel de sidr", 96, 2900, 4.3],
+          ["dattes medjool 1kg", 61, 2600, 5.9],
+          ["gant kessa", 6, 2400, 21.3],
+          ["huile de nigelle cheveux", 14, 2200, 10.4],
+          ["ghassoul comment utiliser", 9, 2100, 17.4],
+          ["huile de nigelle pure", 41, 1900, 6.8],
+          ["miel de sidr bienfaits", 0, 1800, 24],
+          ["eau de rose de damas", 19, 1700, 9.5],
+          ["coffret hammam", 12, 1500, 8.7],
+          ["eau de rose visage", 4, 1400, 16.1],
+          ["savon d'alep authentique", 44, 1300, 5.1],
+          ["comment reconnaître un vrai savon d'alep", 3, 950, 13.2],
+          ["coffret hammam cadeau", 21, 880, 4.9],
+          ["miel de sidr yemen prix", 31, 720, 3.2],
+          ["huile d'argan cosmétique pressée à froid", 47, 540, 2.4],
+          ["maison nour", 168, 410, 1.1],
+          ["maison nour avis", 22, 130, 1.4],
+        ] as const
+      ).map(([query, clicks, impressions, position]) => ({ query, clicks, impressions, ctr: clicks / impressions, position })),
+      pages: (
+        [
+          ["/products/savon-alep", 101, 10600, 12.3],
+          ["/products/huile-nigelle", 96, 9800, 9.6],
+          ["/products/huile-argan-bio", 84, 6900, 11.7],
+          ["/products/ghassoul", 33, 5900, 14.2],
+          ["/products/miel-sidr", 131, 5600, 6.1],
+          ["/products/eau-de-rose", 24, 3200, 12],
+          ["/products/dattes-medjool", 66, 2900, 6],
+          ["/products/coffret-hammam", 35, 2500, 7.4],
+          ["/", 195, 700, 1.6],
+        ] as const
+      ).map(([path, clicks, impressions, position]) => ({
+        url: `https://maison-nour.example${path}`,
+        clicks,
+        impressions,
+        ctr: clicks / impressions,
+        position,
+      })),
+    },
     products: [
       {
         id: "p1",

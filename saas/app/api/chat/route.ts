@@ -1,4 +1,5 @@
 import * as z from "zod";
+import { MAX_PAGES, MAX_QUERIES } from "@/lib/search";
 import { accessCodeMatches, isDemoMode } from "@/lib/server/env";
 import { runMockAgent } from "@/lib/server/mock-agent";
 import { friendlyError, runAgent } from "@/lib/server/run-agent";
@@ -36,6 +37,14 @@ const DiscountSchema = z.object({
   oncePerCustomer: z.boolean(),
 });
 
+const SearchMetrics = { clicks: z.number(), impressions: z.number(), ctr: z.number(), position: z.number() };
+const SearchSchema = z.object({
+  source: z.enum(["demo", "import"]),
+  period: z.string().max(120),
+  queries: z.array(z.object({ query: z.string().max(300), ...SearchMetrics })).max(MAX_QUERIES),
+  pages: z.array(z.object({ url: z.string().max(600), ...SearchMetrics })).max(MAX_PAGES),
+});
+
 const ChatSchema = z.object({
   agentId: z.enum(AGENT_IDS),
   message: z.string().trim().min(1).max(4000),
@@ -61,6 +70,7 @@ const ChatSchema = z.object({
       .object({ messages: z.array(z.string().max(200)).max(6), link: z.string().max(500), scrolling: z.boolean() })
       .nullable()
       .default(null),
+    search: SearchSchema.nullable().default(null),
   }),
   workspace: z.object({
     pendingCount: z.number(),

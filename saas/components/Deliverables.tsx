@@ -1,10 +1,11 @@
 "use client";
 
-import { CalendarDays, Check, ClipboardCheck, FileText, Gauge, Mail, Megaphone, Newspaper, PenLine, Tags, TicketPercent, UserRound, Video, X } from "lucide-react";
+import { CalendarDays, ChartLine, Check, ClipboardCheck, FileText, Gauge, Mail, Megaphone, Newspaper, PenLine, Tags, TicketPercent, UserRound, Video, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { AGENTS, agentById } from "@/lib/agents";
 import { useApp } from "@/lib/client/state";
 import { deliverableToText, emailHtml, formatPrice } from "@/lib/export";
+import { formatPercent, formatPosition } from "@/lib/search";
 import {
   type AgentId,
   type AnnouncementBar,
@@ -15,6 +16,7 @@ import {
   isStoreChange,
   pendingChanges,
   PRODUCT_FIELD_LABELS,
+  type SearchQueryRow,
   type StoreChange,
 } from "@/lib/types";
 import { CopyButton, Markdown, ScorePill, ScoreRing, StatusIcon } from "./ui";
@@ -27,6 +29,7 @@ const TYPE_ICONS = {
   page: FileText,
   article: Newspaper,
   seo_audit: Gauge,
+  seo_report: ChartLine,
   email: Mail,
   social_post: ClipboardCheck,
   video_script: Video,
@@ -71,6 +74,8 @@ function metaLine(d: Deliverable): string {
       return `Mot-clé : ${d.keyword}`;
     case "seo_audit":
       return d.scope === "catalog" ? `${d.rows.length} fiches analysées` : `${d.checks.length} points vérifiés`;
+    case "seo_report":
+      return `${d.totals.clicks.toLocaleString("fr-FR")} clics · ${d.actions.length} actions`;
     case "email":
       return [d.sequence, d.sendTiming].filter(Boolean).join(" · ") || `Objet : ${d.subject}`;
     case "social_post":
@@ -80,6 +85,39 @@ function metaLine(d: Deliverable): string {
     case "calendar":
       return `${d.entries.length} publications`;
   }
+}
+
+export function SearchTotals({ totals }: { totals: { clicks: number; impressions: number; ctr: number; position: number; brandShare: number } }) {
+  return (
+    <div className="kpis">
+      <div><strong>{totals.clicks.toLocaleString("fr-FR")}</strong><span>Clics</span></div>
+      <div><strong>{totals.impressions.toLocaleString("fr-FR")}</strong><span>Impressions</span></div>
+      <div><strong>{formatPercent(totals.ctr)}</strong><span>Taux de clic</span></div>
+      <div><strong>{formatPosition(totals.position)}</strong><span>Position moyenne</span></div>
+      <div><strong>{formatPercent(totals.brandShare)}</strong><span>Clics venant du nom de la marque</span></div>
+    </div>
+  );
+}
+
+export function QueryTable({ rows }: { rows: SearchQueryRow[] }) {
+  return (
+    <div className="table-wrap">
+      <table className="table">
+        <thead><tr><th>Requête</th><th>Clics</th><th>Impressions</th><th>Taux de clic</th><th>Position</th></tr></thead>
+        <tbody>
+          {rows.map((q) => (
+            <tr key={q.query}>
+              <td>{q.query}</td>
+              <td className="nowrap">{q.clicks.toLocaleString("fr-FR")}</td>
+              <td className="nowrap">{q.impressions.toLocaleString("fr-FR")}</td>
+              <td className="nowrap">{formatPercent(q.ctr)}</td>
+              <td className="nowrap">{formatPosition(q.position)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
 function DecisionButtons({ d }: { d: StoreChange }) {
@@ -314,6 +352,46 @@ function DetailBody({ d }: { d: Deliverable }) {
               </div>
             </div>
           )}
+        </>
+      );
+    case "seo_report":
+      return (
+        <>
+          <div className="muted">
+            {d.period}
+            {d.source === "demo" && " · chiffres d'exemple, pas ceux d'un vrai site"}
+          </div>
+          <SearchTotals totals={d.totals} />
+          <p className="reason">{d.summary}</p>
+          <h3 className="report-title">Plan d&apos;action</h3>
+          <div className="table-wrap">
+            <table className="table">
+              <thead><tr><th>Priorité</th><th>Action</th><th>Cible</th><th>Pourquoi</th></tr></thead>
+              <tbody>
+                {d.actions.map((a, i) => (
+                  <tr key={i}>
+                    <td><span className={`priority priority-${a.priority}`}>{a.priority}</span></td>
+                    <td>{a.action}</td>
+                    <td>{a.target}</td>
+                    <td>{a.reason}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {d.quickWins.length > 0 && (
+            <>
+              <h3 className="report-title">À portée de la première page (positions 4 à 15)</h3>
+              <QueryTable rows={d.quickWins} />
+            </>
+          )}
+          {d.lowCtr.length > 0 && (
+            <>
+              <h3 className="report-title">Bien classées, mais peu cliquées</h3>
+              <QueryTable rows={d.lowCtr} />
+            </>
+          )}
+          <p className="muted">Les chiffres et les tableaux sont calculés à partir des données Search Console. La lecture et le plan d&apos;action sont rédigés par l&apos;agent.</p>
         </>
       );
     case "email":

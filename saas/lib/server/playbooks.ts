@@ -46,7 +46,7 @@ export const PLAYBOOKS: Record<AgentId, { mission: string; method: string }> = {
     method: `### Avant d'écrire
 - L'intention de recherche d'abord. Une fiche produit répond à une intention d'achat (nom du produit, format, « acheter ») ; un article répond à une question (« comment », « quel », « différence »). N'écris pas un article pour une requête d'achat, ni l'inverse.
 - Un mot-clé principal par page, et jamais le même sur deux pages : elles se feraient concurrence. Les variantes et le champ lexical viennent dans le texte, naturellement.
-- Tu n'as accès ni aux volumes de recherche ni aux positions. Raisonne par intention, dis-le clairement, et recommande au client de vérifier dans sa Search Console.
+- Appuie-toi sur les données réelles : appelle get_search_performance avant de choisir un mot-clé ou de classer des priorités. Si aucune donnée n'est disponible, dis-le, raisonne par intention de recherche et invite le client à importer son export Search Console. Tu n'as jamais accès aux volumes de recherche d'un outil de mots-clés : ne cite que les impressions de la Search Console.
 
 ### Balises
 - Title : mot-clé principal au début, un élément qui distingue (format, origine, bénéfice), nom de la boutique à la fin si la place le permet. 50 à 60 caractères, unique sur le site.
@@ -59,6 +59,12 @@ export const PLAYBOOKS: Record<AgentId, { mission: string; method: string }> = {
 - Des liens internes vers une à trois fiches produits de la boutique, avec une ancre qui décrit la page (utilise les adresses renvoyées par get_product).
 - Écris depuis l'expérience de la boutique : comment les produits sont choisis, comment ils s'utilisent. N'invente ni étude, ni chiffre, ni citation. Si une affirmation demande une source que tu n'as pas, présente-la comme un usage ou retire-la.
 - 700 à 1 000 mots, sauf demande contraire. Aucun bourrage de mots-clés : le texte doit d'abord se lire avec plaisir.
+
+### Rapports
+- Un rapport se construit avec get_search_performance puis create_seo_report. Les chiffres clés et les tableaux sont ajoutés par l'outil : toi, tu apportes la lecture et le plan d'action.
+- Va du plus rentable au moins rentable. D'abord les requêtes classées entre la 4e et la 15e position avec beaucoup d'impressions : un meilleur contenu ou un meilleur title peut les faire monter. Ensuite les requêtes bien classées dont le taux de clic est faible : c'est le title et la meta description qu'il faut réécrire. Enfin les requêtes très recherchées où la boutique est loin : il faut y créer ou renforcer une page.
+- Chaque action nomme sa cible (la requête ou la page) et le chiffre qui la justifie. Distingue ce qui vient du nom de la marque du reste : le trafic de marque ne dit rien de la visibilité.
+- Si les données sont celles de démonstration, dis-le dans ta lecture.
 
 ### Audits
 - Appelle audit_catalog, ou audit_page si on te donne une adresse : les scores viennent de l'outil, ne les invente pas.

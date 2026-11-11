@@ -5,7 +5,7 @@ MVP d'un SaaS où quatre agents IA travaillent sur une boutique e-commerce. Le c
 | Agent | Ce qu'il fait |
 |---|---|
 | **Webmaster** | Réécrit les fiches produits, crée les pages (FAQ, À propos, Livraison et retours), change les prix en masse, prépare les codes promo et la barre d'annonce |
-| **SEO** | Audite le catalogue ou une page publique, propose balises title et meta descriptions, rédige des articles |
+| **SEO** | Audite le catalogue ou une page publique, établit un rapport à partir des données Search Console, propose balises title et meta descriptions, rédige des articles |
 | **Emailing** | Écrit séquences de bienvenue, relances de panier, newsletters, avec aperçu HTML |
 | **Réseaux & Vidéo** | Écrit scripts TikTok/Reels plan par plan (avec ou sans présentateur IA), posts, calendrier éditorial |
 
@@ -69,6 +69,7 @@ Vercel déploie la branche par défaut du dépôt : le dossier `saas/` doit donc
 - `lib/server/prompts.ts` assemble le tout : mission, brief de marque, méthode, règles d'écriture, interdits (inventer des chiffres ou des avis, fausse urgence, allégations santé).
 - `lib/audit.ts` calcule les scores SEO avec des règles fixes : le score affiché ne vient jamais du modèle.
 - Les prix en masse suivent le même principe : l'agent choisit une règle (« -15 % sur la catégorie Huiles, arrondi à ,90 ») et c'est `propose_price_rule` qui calcule chaque prix. L'écran de validation montre la variation réelle après arrondi.
+- **Search Console** (`lib/search.ts`) : l'écran « Search Console » lit le fichier ZIP exporté depuis Google Search Console (Performances, Exporter, Télécharger au format CSV), en français ou en anglais. Les constats sont calculés par des règles fixes : requêtes classées de la 4e à la 15e position, requêtes bien classées mais peu cliquées, requêtes où la boutique est loin, part des clics venant du nom de la marque. L'Agent SEO lit ces constats et rédige la lecture et le plan d'action ; les chiffres du rapport ne viennent jamais du modèle. La boutique de démonstration contient des chiffres d'exemple, signalés comme tels.
 - `lib/store-changes.ts` applique à la boutique les changements validés : fiche, prix, code promo, barre d'annonce. L'écran « Aperçu du site » les montre aussitôt.
 - `lib/server/seo-page.ts` télécharge une page publique pour l'auditer et bloque les adresses internes.
 - L'état (boutique de démo, conversations, livrables) est gardé dans le navigateur. Le serveur ne stocke rien.
@@ -97,4 +98,5 @@ ANTHROPIC_BASE_URL=http://127.0.0.1:4010 ANTHROPIC_API_KEY=test npm run dev
 - **Pas de comptes clients ni de paiement.** Le code d'accès unique protège l'URL, il ne sépare pas plusieurs clients.
 - **Pas d'envoi d'emails ni de publication sur les réseaux.** Les livrables sont à copier dans l'outil du client.
 - **Pas de génération de vidéo.** Pour une vidéo avec présentateur IA, l'agent écrit le script, la voix off et le brief du personnage, à donner à un outil de génération vidéo. Brancher un tel outil demande un compte et une clé chez ce fournisseur.
-- **Pas de données de recherche** (volumes, positions) : l'agent SEO raisonne par intention et le dit.
+- **Pas de connexion directe à Google Search Console.** Les données entrent par import du fichier exporté. Une connexion directe demande une application déclarée chez Google (identifiants OAuth), l'accord de chaque client et un endroit sûr où garder son jeton d'accès, donc des comptes clients.
+- **Pas de volumes de recherche** d'un outil de mots-clés : l'agent SEO ne cite que les impressions de la Search Console.

@@ -206,7 +206,68 @@ const WEBMASTER_VARIANTS: { match: RegExp; steps: Step[] }[] = [
   },
 ];
 
+const SEO_REPORT: Step[] = [
+  { say: "Je lis vos données Search Console, puis j'établis le rapport." },
+  { tool: "get_search_performance", input: {} },
+  {
+    tool: "create_seo_report",
+    input: {
+      title: "Rapport SEO — 3 derniers mois",
+      summary:
+        "Ces chiffres sont des données de démonstration. La boutique est vue (51 830 impressions) mais peu cliquée : 1,5 % de taux de clic, pour une position moyenne de 12,7. Un clic sur quatre vient de recherches sur le nom « Maison Nour » : hors marque, la visibilité reste à construire. Le gain le plus rapide est sur trois requêtes très recherchées, classées en bas de première page ou en haut de deuxième : « savon d'alep », « huile de nigelle » et « ghassoul cheveux ».",
+      actions: [
+        {
+          priority: "haute",
+          action: "Enrichir la fiche et retravailler son title autour de la requête exacte",
+          target: "savon d'alep — /products/savon-alep",
+          reason: "8 200 impressions en position 14,6 : c'est la requête la plus recherchée, et la fiche tient en deux phrases.",
+        },
+        {
+          priority: "haute",
+          action: "Réécrire la fiche (description, title, meta description)",
+          target: "huile de nigelle — /products/huile-nigelle",
+          reason: "5 400 impressions en position 11,2, aux portes de la première page, avec une description de 5 mots.",
+        },
+        {
+          priority: "haute",
+          action: "Réécrire le title et la meta description pour donner une raison de cliquer",
+          target: "miel de sidr — /products/miel-sidr",
+          reason: "Déjà en position 4,3, mais 3,3 % de taux de clic seulement : le classement est là, pas l'envie de cliquer.",
+        },
+        {
+          priority: "moyenne",
+          action: "Soutenir la fiche par un article lié et des liens internes : elle est déjà bien rédigée",
+          target: "huile d'argan bio — /products/huile-argan-bio",
+          reason: "6 100 impressions en position 15,8, juste derrière la première page.",
+        },
+        {
+          priority: "moyenne",
+          action: "Ajouter à la fiche une partie « comment l'utiliser sur les cheveux »",
+          target: "ghassoul cheveux — /products/ghassoul",
+          reason: "3 600 impressions en position 12,9, et une seconde requête proche (« ghassoul comment utiliser ») en 17,4.",
+        },
+        {
+          priority: "moyenne",
+          action: "Écrire un article de blog qui répond à la question",
+          target: "comment reconnaître un vrai savon d'alep",
+          reason: "950 impressions en position 13,2 sur une question : c'est un article qu'il faut, pas une fiche produit.",
+        },
+        {
+          priority: "basse",
+          action: "Créer une page dédiée, ou étoffer le coffret hammam",
+          target: "savon noir hammam, gant kessa",
+          reason: "5 500 impressions à elles deux, mais au-delà de la 19e position : la boutique n'a pas de page qui y réponde vraiment.",
+        },
+      ],
+    },
+  },
+  {
+    say: "Votre **rapport SEO** est prêt, à partir des données Search Console (ici, des données de démonstration).\n\n- La boutique est vue mais peu cliquée : **1,5 %** de taux de clic, position moyenne **12,7**\n- **Un clic sur quatre** vient du nom de la marque : hors marque, tout reste à gagner\n- Trois priorités hautes : les fiches **savon d'Alep** et **huile de nigelle** à enrichir, le title du **miel de sidr** à réécrire\n\nLe plan d'action complet est dans le rapport, classé du plus rentable au moins rentable. Prochaine étape : dites-moi « optimise les 3 priorités hautes » et je prépare les propositions à valider.",
+  },
+];
+
 function scriptFor(request: ChatRequest): Step[] {
+  if (request.agentId === "seo" && /rapport|search console|bilan/i.test(request.message)) return SEO_REPORT;
   if (request.agentId === "webmaster") {
     const variant = WEBMASTER_VARIANTS.find((v) => v.match.test(request.message));
     if (variant) return variant.steps;
