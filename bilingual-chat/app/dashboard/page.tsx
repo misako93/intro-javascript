@@ -19,7 +19,14 @@ type RoomRow = {
   room_label: string | null;
   created_at: string;
   room_members: { user_id: string; display_name: string; my_lang: string; target_lang: string }[];
-  messages: { original_text: string; kind: string; created_at: string; sender_id: string }[];
+  messages: {
+    original_text: string;
+    kind: string;
+    created_at: string;
+    sender_id: string;
+    is_ai: boolean;
+    translations: Record<string, string> | null;
+  }[];
 };
 
 export default async function DashboardPage() {
@@ -35,7 +42,7 @@ export default async function DashboardPage() {
     supabase
       .from("rooms")
       .select(
-        "id, partner_name, hotel_id, room_label, created_at, room_members(user_id, display_name, my_lang, target_lang), messages(original_text, kind, created_at, sender_id)",
+        "id, partner_name, hotel_id, room_label, created_at, room_members(user_id, display_name, my_lang, target_lang), messages(original_text, kind, created_at, sender_id, is_ai, translations)",
       )
       .order("created_at", { referencedTable: "messages", ascending: false })
       .limit(1, { referencedTable: "messages" }),
@@ -142,10 +149,16 @@ export default async function DashboardPage() {
             const my = getLanguage(room.me?.my_lang);
             const their = getLanguage(room.me?.target_lang);
             const guestLang = getLanguage(room.guestLang);
+            // Aperçu dans la langue du lecteur (la réception lit dans la langue de l'hôtel).
+            const readerLang = room.me?.my_lang ?? hotel?.default_lang;
+            const lastText = room.last
+              ? (readerLang && room.last.translations?.[readerLang]) || room.last.original_text
+              : "";
+            const author = room.last?.is_ai ? "🤖 Assistant : " : room.last?.sender_id === user.id ? "Vous : " : "";
             const preview = room.last
               ? room.last.kind === "audio" && !room.last.original_text
                 ? "🎤 Message vocal"
-                : `${room.last.sender_id === user.id ? "Vous : " : ""}${room.last.kind === "audio" ? "🎤 " : ""}${room.last.original_text}`
+                : `${author}${room.last.kind === "audio" ? "🎤 " : ""}${lastText}`
               : room.waiting
                 ? "En attente de votre invité·e…"
                 : "Dites bonjour 👋";
