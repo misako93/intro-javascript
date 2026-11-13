@@ -114,7 +114,7 @@ npm run dev                  # → http://localhost:3000
    - **ajouter des réceptionnistes** en leur envoyant le lien d'équipe (WhatsApp / copier).
 5. Chaque réceptionniste installe l'app sur son téléphone et active les notifications.
 
-**Parcours du client :** il scanne → la page s'ouvre **dans la langue de son téléphone** (arabe, anglais, chinois, russe, ourdou, hindi, indonésien… 13 langues d'interface, 26 langues de traduction) → il écrit ou envoie un vocal → la réception reçoit « 🛎️ Nouveau client — Ahmed · Ch. 204 » traduit en français. S'il rescanne, il retrouve sa conversation. Il n'a jamais rien à payer et ne voit jamais d'écran d'abonnement.
+**Parcours du client :** il scanne → la page s'ouvre **directement dans la langue de son téléphone**, dès le premier affichage. Les 26 langues de l'application ont leur interface (arabe avec le dialecte du pays : Qatar/Koweït → arabe du Golfe, Égypte → égyptien… ; persan, ourdou, bengali, malais, tagalog, swahili, chinois, russe…). Langue du téléphone non prise en charge → anglais. → il écrit ou envoie un vocal → la réception reçoit « 🛎️ Nouveau client — Ahmed · Ch. 204 » traduit en français. S'il rescanne, il retrouve sa conversation. Il n'a jamais rien à payer et ne voit jamais d'écran d'abonnement.
 
 **Équipe :** tous les réceptionnistes voient toutes les conversations de l'hôtel et peuvent répondre. Un message de client sonne chez toute l'équipe ; une réponse de la réception n'est envoyée qu'au client. Le responsable peut retirer un membre : il perd l'accès immédiatement.
 
