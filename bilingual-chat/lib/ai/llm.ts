@@ -3,6 +3,8 @@
  * - ANTHROPIC_API_KEY présente → Claude ; sinon OPENAI_API_KEY → GPT-4o-mini.
  * - TRANSLATION_PROVIDER=anthropic|openai pour forcer.
  * - OPENAI_BASE_URL / ANTHROPIC_BASE_URL : optionnels (fournisseur compatible, tests).
+ * - OpenRouter : OPENAI_BASE_URL=https://openrouter.ai/api/v1, OPENAI_API_KEY=<clé OpenRouter>,
+ *   OPENAI_TRANSLATION_MODEL=openai/gpt-4o-mini (ou tout autre modèle de openrouter.ai/models).
  */
 type LlmInput = { system: string; user: string; json?: boolean; maxTokens?: number };
 
@@ -46,6 +48,10 @@ async function withOpenAI({ system, user, json, maxTokens = 2048 }: LlmInput): P
     headers: {
       Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
       "content-type": "application/json",
+      // En-têtes facultatifs recommandés par OpenRouter (identification de l'application)
+      ...(base.includes("openrouter.ai")
+        ? { "HTTP-Referer": process.env.NEXT_PUBLIC_SITE_URL || "https://localhost", "X-Title": process.env.NEXT_PUBLIC_APP_NAME || "Tarjem" }
+        : {}),
     },
     body: JSON.stringify({
       model: process.env.OPENAI_TRANSLATION_MODEL || "gpt-4o-mini",

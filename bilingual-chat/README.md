@@ -28,6 +28,7 @@ Messagerie type WhatsApp où chacun écrit (ou parle) dans sa langue : l'interlo
 |---|---|---|
 | `OPENAI_API_KEY` | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) | **Oui** (vocaux Whisper + traduction de secours) |
 | `ANTHROPIC_API_KEY` | [console.anthropic.com](https://console.anthropic.com/settings/keys) | Non — si présente, Claude traduit (meilleur sur les dialectes arabes) |
+| **ou** OpenRouter | [openrouter.ai](https://openrouter.ai/keys) | Alternative à OpenAI pour le texte (traduction + assistant) : un compte, des centaines de modèles. `OPENAI_BASE_URL=https://openrouter.ai/api/v1`, clé OpenRouter dans `OPENAI_API_KEY`, `OPENAI_TRANSLATION_MODEL=openai/gpt-4o-mini`. ⚠️ OpenRouter ne fait pas les vocaux : ajoutez `TRANSCRIBE_API_KEY` (OpenAI, ou Groq avec `TRANSCRIBE_BASE_URL`/`TRANSCRIBE_MODEL`, voir `.env.example`) |
 
 ### 3. Déployer sur Vercel (2 clics)
 
