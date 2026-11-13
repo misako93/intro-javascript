@@ -2,6 +2,8 @@ import { notFound, redirect } from "next/navigation";
 import ChatRoom from "@/components/ChatRoom";
 import { createClient } from "@/lib/supabase/server";
 import { UUID_RE } from "@/lib/utils";
+import { getRoomBilling } from "@/lib/billing";
+import { PRICE_LABEL } from "@/lib/config";
 import type { Member, Message, Room } from "@/lib/types";
 
 export default async function ChatPage({ params }: { params: Promise<{ id: string }> }) {
@@ -23,12 +25,16 @@ export default async function ChatPage({ params }: { params: Promise<{ id: strin
 
   if (!room || !members?.some((m) => m.user_id === user.id)) notFound();
 
+  const billing = await getRoomBilling(supabase, id);
+
   return (
     <ChatRoom
       room={room as Room}
       initialMembers={members as Member[]}
       initialMessages={((messages ?? []) as Message[]).reverse()}
       userId={user.id}
+      initialBilling={billing}
+      priceLabel={PRICE_LABEL}
     />
   );
 }

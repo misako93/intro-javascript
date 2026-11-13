@@ -1,9 +1,12 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import NewRoomForm from "@/components/NewRoomForm";
+import InstallBanner from "@/components/InstallBanner";
+import { PlanCard } from "@/components/Billing";
+import { ACTIVE_STATUSES, BILLING_ENABLED, FREE_MESSAGES_PER_ROOM } from "@/lib/billing";
 import { createClient } from "@/lib/supabase/server";
 import { getLanguage } from "@/lib/languages";
-import { APP_NAME } from "@/lib/config";
+import { APP_NAME, PRICE_LABEL } from "@/lib/config";
 import { formatRelative } from "@/lib/utils";
 
 type RoomRow = {
@@ -21,13 +24,23 @@ export default async function DashboardPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const { data } = await supabase
-    .from("rooms")
-    .select(
-      "id, partner_name, created_at, room_members(user_id, display_name, my_lang, target_lang), messages(original_text, kind, created_at, sender_id)",
-    )
-    .order("created_at", { referencedTable: "messages", ascending: false })
-    .limit(1, { referencedTable: "messages" });
+  const [{ data }, { data: subscription }] = await Promise.all([
+    supabase
+      .from("rooms")
+      .select(
+        "id, partner_name, created_at, room_members(user_id, display_name, my_lang, target_lang), messages(original_text, kind, created_at, sender_id)",
+      )
+      .order("created_at", { referencedTable: "messages", ascending: false })
+      .limit(1, { referencedTable: "messages" }),
+    supabase
+      .from("subscriptions")
+      .select("status, current_period_end, cancel_at_period_end")
+      .eq("user_id", user.id)
+      .maybeSingle(),
+  ]);
+  const subscribed =
+    Boolean(subscription && ACTIVE_STATUSES.includes(subscription.status)) &&
+    (!subscription?.current_period_end || new Date(subscription.current_period_end) > new Date());
 
   const rooms = ((data ?? []) as RoomRow[])
     .map((room) => {
@@ -60,7 +73,19 @@ export default async function DashboardPage() {
         </form>
       </header>
 
+      <InstallBanner />
+
       <NewRoomForm defaultMyLang={lastMe?.my_lang} defaultTargetLang={lastMe?.target_lang} />
+
+      {BILLING_ENABLED && (
+        <PlanCard
+          active={subscribed}
+          cancelAtPeriodEnd={Boolean(subscription?.cancel_at_period_end)}
+          periodEnd={subscription?.current_period_end ?? null}
+          freeMessages={FREE_MESSAGES_PER_ROOM}
+          priceLabel={PRICE_LABEL}
+        />
+      )}
 
       <h2 className="mb-3 mt-8 text-sm font-semibold uppercase tracking-wide text-slate-500">Mes conversations</h2>
 

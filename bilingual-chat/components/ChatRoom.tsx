@@ -7,26 +7,33 @@ import Composer from "@/components/Composer";
 import LanguageSelect from "@/components/LanguageSelect";
 import MessageBubble from "@/components/MessageBubble";
 import { InviteButton, InviteCard } from "@/components/InviteButton";
+import NotificationsBanner from "@/components/NotificationsBanner";
+import { Paywall, TrialBanner } from "@/components/Billing";
+import type { RoomBilling } from "@/lib/billing";
 import { getLanguage } from "@/lib/languages";
 import type { Member, Message, Room } from "@/lib/types";
 
-type Pending = { tempId: string; kind: "text" | "audio"; text: string; failed?: boolean; retry: () => void };
+type Pending = { tempId: string; kind: "text" | "audio"; text: string; failed?: boolean; paywall?: boolean; retry: () => void };
 
 type Props = {
   room: Room;
   initialMembers: Member[];
   initialMessages: Message[];
   userId: string;
+  initialBilling: RoomBilling;
+  priceLabel: string;
 };
 
 const byDate = (a: Message, b: Message) => a.created_at.localeCompare(b.created_at);
 
-export default function ChatRoom({ room, initialMembers, initialMessages, userId }: Props) {
+export default function ChatRoom({ room, initialMembers, initialMessages, userId, initialBilling, priceLabel }: Props) {
   const supabase = useMemo(() => createClient(), []);
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [members, setMembers] = useState<Member[]>(initialMembers);
   const [pending, setPending] = useState<Pending[]>([]);
   const [online, setOnline] = useState(true);
+  const [billing, setBilling] = useState<RoomBilling>(initialBilling);
+  const [toast, setToast] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const me = members.find((m) => m.user_id === userId)!;
@@ -53,6 +60,15 @@ export default function ChatRoom({ room, initialMembers, initialMessages, userId
     });
   }, []);
 
+  // ── Abonnement ───────────────────────────────────────────────────
+  const refreshBilling = useCallback(async () => {
+    const res = await fetch(`/api/billing/room?roomId=${room.id}`).catch(() => null);
+    if (!res?.ok) return null;
+    const { billing: fresh } = (await res.json()) as { billing: RoomBilling };
+    setBilling(fresh);
+    return fresh;
+  }, [room.id]);
+
   // Récupère les derniers messages (rattrapage après une mise en veille du téléphone, etc.)
   const resync = useCallback(async () => {
     const [{ data: latest }, { data: latestMembers }] = await Promise.all([
@@ -61,7 +77,27 @@ export default function ChatRoom({ room, initialMembers, initialMessages, userId
     ]);
     (latest as Message[] | null)?.forEach(upsertMessage);
     (latestMembers as Member[] | null)?.forEach(upsertMember);
-  }, [supabase, room.id, upsertMessage, upsertMember]);
+    refreshBilling();
+  }, [supabase, room.id, upsertMessage, upsertMember, refreshBilling]);
+
+  // Retour de la page de paiement : on attend la confirmation de Stripe (webhook) quelques secondes.
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("checkout") !== "success") return;
+    url.searchParams.delete("checkout");
+    window.history.replaceState(null, "", url.pathname + url.search);
+    setToast("Paiement reçu, activation de l’abonnement…");
+    let tries = 0;
+    const timer = setInterval(async () => {
+      const fresh = await refreshBilling();
+      if (fresh?.premium || ++tries >= 10) {
+        clearInterval(timer);
+        setToast(fresh?.premium ? "🎉 Conversation illimitée activée, pour vous deux !" : "");
+        setTimeout(() => setToast(""), 4000);
+      }
+    }, 2000);
+    return () => clearInterval(timer);
+  }, [refreshBilling]);
 
   // ── Temps réel ───────────────────────────────────────────────────
   useEffect(() => {
@@ -129,9 +165,15 @@ export default function ChatRoom({ room, initialMembers, initialMessages, userId
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ roomId: room.id, text }),
         });
+        const data = await res.json().catch(() => ({}));
+        if (res.status === 402) {
+          setBilling(data.billing);
+          setPending((p) => p.map((x) => (x.tempId === tempId ? { ...x, failed: true, paywall: true } : x)));
+          return;
+        }
         if (!res.ok) throw new Error();
-        const { message } = await res.json();
-        upsertMessage(message);
+        upsertMessage(data.message);
+        if (data.billing) setBilling(data.billing);
         setPending((p) => p.filter((x) => x.tempId !== tempId));
       } catch {
         setPending((p) => p.map((x) => (x.tempId === tempId ? { ...x, failed: true } : x)));
@@ -149,9 +191,15 @@ export default function ChatRoom({ room, initialMembers, initialMessages, userId
         form.append("roomId", room.id);
         form.append("audio", audio, `voice.${audio.type.includes("mp4") ? "mp4" : "webm"}`);
         const res = await fetch("/api/transcribe", { method: "POST", body: form });
+        const data = await res.json().catch(() => ({}));
+        if (res.status === 402) {
+          setBilling(data.billing);
+          setPending((p) => p.map((x) => (x.tempId === tempId ? { ...x, failed: true, paywall: true } : x)));
+          return;
+        }
         if (!res.ok) throw new Error();
-        const { message } = await res.json();
-        upsertMessage(message);
+        upsertMessage(data.message);
+        if (data.billing) setBilling(data.billing);
         setPending((p) => p.filter((x) => x.tempId !== tempId));
       } catch {
         setPending((p) => p.map((x) => (x.tempId === tempId ? { ...x, failed: true } : x)));
@@ -229,9 +277,19 @@ export default function ChatRoom({ room, initialMembers, initialMessages, userId
         </div>
       </header>
 
+      <TrialBanner billing={billing} roomId={room.id} />
+      {partner && <NotificationsBanner partnerName={partnerName} />}
+
       {/* Messages */}
       <main className="chat-bg flex-1 overflow-y-auto">
         <div className="mx-auto max-w-3xl space-y-2 px-3 py-4">
+          {billing.enabled && billing.premium && billing.sponsorName && (
+            <p className="text-center text-xs text-slate-500">
+              ✨ Conversation illimitée, offerte par{" "}
+              {billing.sponsorName === me.display_name ? "votre abonnement" : billing.sponsorName}
+            </p>
+          )}
+
           {!partner && <InviteCard token={room.invite_token} partnerName={partnerName} />}
 
           {messages.length === 0 && partner && (
@@ -262,7 +320,7 @@ export default function ChatRoom({ room, initialMembers, initialMessages, userId
                 </p>
                 {p.failed ? (
                   <button onClick={p.retry} className="mt-1 text-sm font-semibold underline">
-                    Échec de l’envoi · Réessayer
+                    {p.paywall ? "Abonnement requis · Renvoyer" : "Échec de l’envoi · Réessayer"}
                   </button>
                 ) : (
                   <p className="mt-1 text-right text-[11px] text-emerald-50">Envoi…</p>
@@ -274,12 +332,18 @@ export default function ChatRoom({ room, initialMembers, initialMessages, userId
         </div>
       </main>
 
+      {toast && (
+        <div className="pointer-events-none fixed inset-x-0 top-4 z-50 flex justify-center px-4">
+          <p className="rounded-full bg-slate-900 px-4 py-2.5 text-sm font-medium text-white shadow-lg">{toast}</p>
+        </div>
+      )}
+
       <div className="mx-auto w-full max-w-3xl">
-        <Composer
-          onSendText={sendText}
-          onSendAudio={sendAudio}
-          placeholder={`Écrivez en ${myLang.label}…`}
-        />
+        {billing.canSend ? (
+          <Composer onSendText={sendText} onSendAudio={sendAudio} placeholder={`Écrivez en ${myLang.label}…`} />
+        ) : (
+          <Paywall billing={billing} roomId={room.id} partnerName={partnerName} priceLabel={priceLabel} />
+        )}
       </div>
     </div>
   );

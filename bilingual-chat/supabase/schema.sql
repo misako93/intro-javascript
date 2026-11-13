@@ -210,3 +210,78 @@ create policy "voice: members can upload" on storage.objects
     bucket_id = 'voice-messages'
     and public.is_room_member(((storage.foldername(name))[1])::uuid)
   );
+
+-- ═══════════════════════════════════════════════════════════════════
+--  ABONNEMENTS (Stripe) — un seul abonné suffit pour toute la conversation
+-- ═══════════════════════════════════════════════════════════════════
+
+create table if not exists public.subscriptions (
+  user_id                 uuid primary key references auth.users(id) on delete cascade,
+  stripe_customer_id      text unique,
+  stripe_subscription_id  text,
+  status                  text not null default 'inactive',  -- statut Stripe : active, trialing, past_due, canceled…
+  price_id                text,
+  current_period_end      timestamptz,
+  cancel_at_period_end    boolean not null default false,
+  updated_at              timestamptz not null default now()
+);
+
+alter table public.subscriptions enable row level security;
+
+-- Chacun ne voit que son propre abonnement. Les écritures passent uniquement
+-- par le webhook Stripe (clé service_role, qui contourne RLS).
+drop policy if exists "subscriptions: read own" on public.subscriptions;
+create policy "subscriptions: read own" on public.subscriptions
+  for select to authenticated using (user_id = auth.uid());
+
+create or replace function public.has_active_subscription(p_user_id uuid)
+returns boolean
+language sql stable security definer set search_path = public
+as $$
+  select exists (
+    select 1 from subscriptions
+    where user_id = p_user_id
+      and status in ('active', 'trialing')
+      and (current_period_end is null or current_period_end > now())
+  );
+$$;
+revoke execute on function public.has_active_subscription(uuid) from public, anon, authenticated;
+
+-- État de facturation d'un salon : premium si AU MOINS UN membre est abonné.
+create or replace function public.room_billing(p_room_id uuid)
+returns table (premium boolean, sponsor_name text, message_count int)
+language plpgsql stable security definer set search_path = public
+as $$
+begin
+  if not public.is_room_member(p_room_id) then raise exception 'forbidden'; end if;
+
+  return query
+  select
+    exists (select 1 from room_members m where m.room_id = p_room_id and public.has_active_subscription(m.user_id)),
+    (select m.display_name from room_members m
+       where m.room_id = p_room_id and public.has_active_subscription(m.user_id)
+       order by (m.user_id = auth.uid()) desc limit 1),
+    (select count(*)::int from messages where room_id = p_room_id);
+end $$;
+revoke execute on function public.room_billing(uuid) from public, anon;
+grant  execute on function public.room_billing(uuid) to authenticated;
+
+-- ═══════════════════════════════════════════════════════════════════
+--  NOTIFICATIONS PUSH (application mobile / PWA)
+-- ═══════════════════════════════════════════════════════════════════
+
+create table if not exists public.push_subscriptions (
+  id          uuid primary key default gen_random_uuid(),
+  user_id     uuid not null references auth.users(id) on delete cascade,
+  endpoint    text not null unique,
+  p256dh      text not null,
+  auth        text not null,
+  created_at  timestamptz not null default now()
+);
+create index if not exists push_subscriptions_user_idx on public.push_subscriptions(user_id);
+
+alter table public.push_subscriptions enable row level security;
+
+drop policy if exists "push: manage own" on public.push_subscriptions;
+create policy "push: manage own" on public.push_subscriptions
+  for all to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());

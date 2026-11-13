@@ -5,6 +5,8 @@ import { getLanguage } from "@/lib/languages";
 import { targetLanguagesFor, translateMessage } from "@/lib/messages";
 import { VOICE_BUCKET } from "@/lib/config";
 import { UUID_RE } from "@/lib/utils";
+import { afterSend, getRoomBilling } from "@/lib/billing";
+import { notifyRoom } from "@/lib/push";
 import type { Message } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -61,6 +63,10 @@ export async function POST(request: NextRequest) {
     .maybeSingle();
   if (!me) return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
 
+  // Paywall : un seul abonné suffit pour couvrir toute la conversation.
+  const billing = await getRoomBilling(supabase, roomId);
+  if (!billing.canSend) return NextResponse.json({ error: "paywall", billing }, { status: 402 });
+
   const bytes = new Uint8Array(await audio.arrayBuffer());
   const path = `${roomId}/${user.id}-${crypto.randomUUID()}.${ext}`;
 
@@ -115,7 +121,8 @@ export async function POST(request: NextRequest) {
         if (updateError || !updated) throw updateError ?? new Error("Mise à jour impossible");
 
         const langs = await targetLanguagesFor(db, roomId, user.id);
-        await translateMessage(db, updated as Message, langs);
+        const translations = await translateMessage(db, updated as Message, langs);
+        await notifyRoom(updated as Message, translations);
       } catch (err) {
         console.error("[transcribe]", err);
         await db
@@ -126,5 +133,5 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  return NextResponse.json({ message });
+  return NextResponse.json({ message, billing: afterSend(billing) });
 }

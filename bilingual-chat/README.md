@@ -2,7 +2,10 @@
 
 Messagerie type WhatsApp où chacun écrit (ou parle) dans sa langue : l'interlocuteur voit le message original **et** sa traduction instantanée. Les vocaux sont transcrits (Whisper) puis traduits (Claude ou GPT-4o-mini).
 
-**Stack :** Next.js 16 (App Router) · Tailwind CSS 4 · Supabase (Auth Magic Link/Google, Postgres, Realtime, Storage) · OpenAI Whisper · Claude / GPT-4o-mini
+- 📱 **Application mobile installable** (Android + iPhone) avec notifications push — sans passer par les stores.
+- 💳 **Un seul abonnement par conversation** : si l'un des deux participants est abonné, les deux discutent en illimité.
+
+**Stack :** Next.js 16 (App Router) · Tailwind CSS 4 · Supabase (Auth Magic Link/Google, Postgres, Realtime, Storage) · OpenAI Whisper · Claude / GPT-4o-mini · Stripe · Web Push
 
 ---
 
@@ -13,7 +16,9 @@ Messagerie type WhatsApp où chacun écrit (ou parle) dans sa langue : l'interlo
 1. Créez un projet gratuit sur [supabase.com](https://supabase.com).
 2. **SQL Editor → New query** : collez le contenu de [`supabase/schema.sql`](supabase/schema.sql) puis **Run**.
    (Crée les tables, la sécurité RLS, le temps réel et le stockage des vocaux.)
-3. **Project Settings → API** : notez `Project URL` et la clé `anon public`.
+3. **Project Settings → API** : notez `Project URL`, la clé `anon public` et la clé `service_role` (secrète).
+
+> Vous mettez à jour une installation existante ? Ré-exécutez simplement `schema.sql` : il est ré-exécutable sans risque.
 
 ### 2. Récupérer les clés IA
 
@@ -24,15 +29,47 @@ Messagerie type WhatsApp où chacun écrit (ou parle) dans sa langue : l'interlo
 
 ### 3. Déployer sur Vercel (2 clics)
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fmisako93%2Fintro-javascript&root-directory=bilingual-chat&env=NEXT_PUBLIC_SUPABASE_URL,NEXT_PUBLIC_SUPABASE_ANON_KEY,OPENAI_API_KEY,ANTHROPIC_API_KEY&envDescription=Cl%C3%A9s%20Supabase%20et%20IA%20(voir%20README))
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fmisako93%2Fintro-javascript&root-directory=bilingual-chat&env=NEXT_PUBLIC_SUPABASE_URL,NEXT_PUBLIC_SUPABASE_ANON_KEY,SUPABASE_SERVICE_ROLE_KEY,OPENAI_API_KEY,ANTHROPIC_API_KEY&envDescription=Cl%C3%A9s%20Supabase%20et%20IA%20(voir%20README))
 
-1. Cliquez le bouton ci-dessus → collez vos 4 clés → **Deploy**.
+1. Cliquez le bouton ci-dessus → collez vos clés → **Deploy**.
    (Si vous importez le dépôt à la main : **Root Directory = `bilingual-chat`**.)
 2. Une fois en ligne, dans **Supabase → Authentication → URL Configuration** :
    - **Site URL** : `https://votre-app.vercel.app`
    - **Redirect URLs** : ajoutez `https://votre-app.vercel.app/**` (et `http://localhost:3000/**` pour le dev)
 
-C'est prêt. 🎉
+C'est prêt. 🎉 Sans Stripe configuré, l'app est entièrement gratuite (pas de paywall). Ajoutez les sections 4 et 5 quand vous êtes prêt·e.
+
+### 4. Activer les abonnements (Stripe)
+
+1. Sur [dashboard.stripe.com](https://dashboard.stripe.com) : **Catalogue de produits → Ajouter un produit** (ex. « Tarjem Illimité », 9,99 €/mois, récurrent). Copiez l'ID du prix (`price_…`).
+2. **Développeurs → Clés API** : copiez la clé secrète (`sk_live_…`).
+3. **Développeurs → Webhooks → Ajouter un endpoint** :
+   - URL : `https://votre-app.vercel.app/api/billing/webhook`
+   - Événements : `checkout.session.completed`, `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`
+   - Copiez le « secret de signature » (`whsec_…`).
+4. **Paramètres → Portail client** : activez-le (résiliation, changement de carte, factures).
+5. Sur Vercel → Settings → Environment Variables : `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_ID`, `NEXT_PUBLIC_PRICE_LABEL` (ex. `9,99 € / mois`), `FREE_MESSAGES_PER_ROOM` (ex. `20`) → **Redeploy**.
+
+**Règle :** chaque conversation offre `FREE_MESSAGES_PER_ROOM` messages. Ensuite, il suffit qu'**un seul** des deux participants soit abonné pour que **les deux** écrivent et envoient des vocaux en illimité. L'abonnement couvre toutes les conversations de l'abonné. L'interlocuteur voit « Conversation illimitée, offerte par … ».
+
+Testez d'abord en mode test Stripe (clés `sk_test_…`, carte `4242 4242 4242 4242`).
+
+### 5. Activer l'application mobile + notifications
+
+L'app est déjà installable (PWA) : sur Android, un bouton « Installer l'application » apparaît ; sur iPhone, un encart explique « Partager → Sur l'écran d'accueil ». Pour les **notifications** des nouveaux messages :
+
+```bash
+npx web-push generate-vapid-keys
+```
+Ajoutez sur Vercel : `NEXT_PUBLIC_VAPID_PUBLIC_KEY` (Public Key), `VAPID_PRIVATE_KEY` (Private Key), `VAPID_SUBJECT` (`mailto:votre@email.com`) → **Redeploy**.
+
+La notification affiche le message **déjà traduit** dans la langue du destinataire.
+
+| | Android | iPhone |
+|---|---|---|
+| Installation | Bouton « Installer » (Chrome) | Safari → Partager → « Sur l'écran d'accueil » |
+| Notifications | ✅ | ✅ iOS 16.4+, une fois l'app ajoutée à l'écran d'accueil |
+| Micro / vocaux | ✅ | ✅ |
 
 ### En local
 
@@ -60,6 +97,17 @@ npm run dev                  # → http://localhost:3000
 
 ---
 
+## 📲 Et les App Store / Play Store ?
+
+Possible plus tard (en enveloppant l'app avec Capacitor), mais à faire **quand le produit a trouvé ses clients**, pour 3 raisons :
+1. Apple et Google imposent leur propre système de paiement pour les abonnements vendus dans l'app (15 à 30 % de commission, code à part, par ex. avec RevenueCat).
+2. Apple refuse souvent les apps qui ne sont « qu'un site dans une coque » : il faudra des fonctions natives (notifications natives, contacts…).
+3. Comptes développeur : 99 $/an (Apple) + 25 $ (Google), et des délais de validation à chaque mise à jour.
+
+La version PWA permet de vendre via Stripe (~3 à 5 % de frais au total) et de mettre à jour l'app instantanément.
+
+---
+
 ## 🗂️ Arborescence
 
 ```
@@ -78,19 +126,33 @@ bilingual-chat/
 │   ├── chat/[id]/page.tsx       # Écran de conversation
 │   └── api/
 │       ├── translate/route.ts   # Envoi d'un message texte + traduction (ou retraduction)
-│       └── transcribe/route.ts  # Upload du vocal + transcription Whisper + traduction
+│       ├── transcribe/route.ts  # Upload du vocal + transcription Whisper + traduction
+│       ├── billing/checkout/    # → page de paiement Stripe
+│       ├── billing/portal/      # → espace client Stripe (factures, résiliation)
+│       ├── billing/webhook/     # Stripe → table subscriptions
+│       ├── billing/room/        # La conversation est-elle couverte par un abonnement ?
+│       └── push/subscribe/      # Enregistre le téléphone pour les notifications
 ├── components/
 │   ├── ChatRoom.tsx             # Temps réel, sélecteur de langues, envoi
 │   ├── MessageBubble.tsx        # Bulle : texte/lecteur audio + traduction + 🔊
 │   ├── Composer.tsx             # Champ texte + bouton micro (MediaRecorder)
 │   ├── InviteButton.tsx         # Partage WhatsApp / SMS / copie du lien
+│   ├── Billing.tsx              # Bandeau d'essai, paywall, encart « Mon abonnement »
+│   ├── InstallBanner.tsx        # « Installer l'application » (Android / iPhone)
+│   ├── NotificationsBanner.tsx  # Activation des notifications
+│   ├── PwaSetup.tsx             # Enregistre le service worker
 │   ├── NewRoomForm.tsx · LanguageSelect.tsx · LoginForm.tsx
 └── lib/
     ├── ai/transcribe.ts         # Appel Whisper
     ├── ai/translate.ts          # Traduction contextuelle (Claude ou GPT-4o-mini)
     ├── messages.ts              # Quelles langues traduire + enregistrement
+    ├── billing.ts · stripe.ts   # Règle « un abonné suffit » + synchro Stripe
+    ├── push.ts · pwa.ts         # Notifications (serveur / navigateur)
     ├── languages.ts             # 26 langues dont 8 dialectes arabes
-    └── supabase/{client,server,proxy}.ts
+    └── supabase/{client,server,proxy,admin}.ts
+public/
+    ├── sw.js · offline.html     # Service worker : notifications + page hors-ligne
+    └── icons/                   # Icônes Android, iPhone, maskable, badge
 ```
 
 ## 🧠 Fonctionnement
@@ -101,8 +163,8 @@ bilingual-chat/
 - Vocal → upload dans un bucket **privé** → transcription Whisper → traduction. Le lecteur audio reste disponible.
 - La traduction tient compte des 6 derniers messages (genre, pronoms, argot).
 - Si une traduction n'arrive pas, l'app la redemande automatiquement ; un bouton « Réessayer » apparaît en dernier recours.
-- Sécurité : chaque table est protégée par RLS — seuls les 2 membres d'un salon peuvent lire ses messages et écouter ses vocaux. Les clés IA restent côté serveur.
+- Sécurité : chaque table est protégée par RLS — seuls les 2 membres d'un salon peuvent lire ses messages et écouter ses vocaux. Le paywall est vérifié côté serveur, et seul le webhook Stripe signé peut activer un abonnement. Les clés IA, Stripe et `service_role` restent côté serveur.
 
 ## 💶 Coûts indicatifs
 
-Supabase et Vercel : gratuits pour démarrer. Whisper : ~0,006 $ / minute d'audio. GPT-4o-mini : quelques centimes pour des milliers de messages. Claude : vérifiez la grille tarifaire du modèle choisi sur anthropic.com.
+Supabase et Vercel : gratuits pour démarrer. Stripe : ~1,5 % + 0,25 € par paiement (cartes européennes) + 0,7 % pour la gestion des abonnements (Stripe Billing). Whisper : ~0,006 $ / minute d'audio. GPT-4o-mini : quelques centimes pour des milliers de messages. Claude : vérifiez la grille tarifaire du modèle choisi sur anthropic.com.

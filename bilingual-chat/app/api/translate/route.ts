@@ -3,6 +3,8 @@ import { createClient, createTokenClient } from "@/lib/supabase/server";
 import { isLanguage } from "@/lib/languages";
 import { targetLanguagesFor, translateMessage } from "@/lib/messages";
 import { UUID_RE } from "@/lib/utils";
+import { afterSend, getRoomBilling } from "@/lib/billing";
+import { notifyRoom } from "@/lib/push";
 import type { Message } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -34,6 +36,11 @@ export async function POST(request: NextRequest) {
     const { data: message } = await supabase.from("messages").select("*").eq("id", body.messageId).maybeSingle();
     if (!message) return NextResponse.json({ error: "Message introuvable" }, { status: 404 });
 
+    const billing = await getRoomBilling(supabase, message.room_id);
+    if (!billing.premium && billing.used > billing.limit) {
+      return NextResponse.json({ error: "paywall", billing }, { status: 402 });
+    }
+
     const result = await translateMessage(supabase, message as Message, [lang]);
     if (!result[lang]) return NextResponse.json({ error: "La traduction a échoué" }, { status: 502 });
     return NextResponse.json({ lang, translation: result[lang] });
@@ -56,6 +63,10 @@ export async function POST(request: NextRequest) {
     .eq("user_id", user.id)
     .maybeSingle();
   if (!me) return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
+
+  // Paywall : un seul abonné suffit pour couvrir toute la conversation.
+  const billing = await getRoomBilling(supabase, roomId);
+  if (!billing.canSend) return NextResponse.json({ error: "paywall", billing }, { status: 402 });
 
   const { data: message, error } = await supabase
     .from("messages")
@@ -84,9 +95,10 @@ export async function POST(request: NextRequest) {
     after(async () => {
       const db = createTokenClient(accessToken);
       const langs = await targetLanguagesFor(db, roomId, user.id);
-      await translateMessage(db, message as Message, langs);
+      const translations = await translateMessage(db, message as Message, langs);
+      await notifyRoom(message as Message, translations);
     });
   }
 
-  return NextResponse.json({ message });
+  return NextResponse.json({ message, billing: afterSend(billing) });
 }
