@@ -280,8 +280,8 @@ begin
     (select p.display_name from payers p where public.has_active_subscription(p.user_id)
        order by (p.user_id = auth.uid()) desc limit 1),
     case when v_hotel is null
-      then (select count(*)::int from messages where room_id = p_room_id)
-      else (select count(*)::int from messages ms join rooms r on r.id = ms.room_id where r.hotel_id = v_hotel)
+      then (select count(*)::int from messages where room_id = p_room_id and not is_ai)
+      else (select count(*)::int from messages ms join rooms r on r.id = ms.room_id where r.hotel_id = v_hotel and not ms.is_ai)
     end,
     v_hotel is not null;
 end $$;
@@ -313,6 +313,7 @@ create policy "push: manage own" on public.push_subscriptions
 --  (peut différer de la langue du profil ; sert à éviter les traductions inutiles)
 -- ═══════════════════════════════════════════════════════════════════
 alter table public.messages add column if not exists detected_lang text;
+alter table public.messages add column if not exists is_ai boolean not null default false;  -- réponse de l'assistant IA
 
 -- ═══════════════════════════════════════════════════════════════════
 --  MODE HÔTEL : QR code à l'accueil / dans les chambres
@@ -556,3 +557,21 @@ grant  execute on function public.room_participants(uuid)                      t
 grant  execute on function public.room_hotel(uuid)                             to authenticated;
 grant  execute on function public.get_hotel_entry(text)                        to anon, authenticated;
 grant  execute on function public.get_staff_invite(text)                       to anon, authenticated;
+
+-- ═══════════════════════════════════════════════════════════════════
+--  ASSISTANT IA : répond seul aux questions dont la réponse est dans
+--  la fiche "Infos pratiques" de l'hôtel ; transmet le reste à la réception.
+-- ═══════════════════════════════════════════════════════════════════
+alter table public.hotels add column if not exists assistant_enabled boolean not null default false;
+alter table public.hotels add column if not exists assistant_info    text    not null default '';
+grant update (name, default_lang, assistant_enabled, assistant_info) on public.hotels to authenticated;
+
+-- Personne ne peut se faire passer pour l'assistant (seul le serveur écrit is_ai = true).
+drop policy if exists "messages: members can send" on public.messages;
+create policy "messages: members can send" on public.messages
+  for insert to authenticated
+  with check (sender_id = auth.uid() and public.is_room_member(room_id) and is_ai = false);
+
+-- L'expéditeur ne peut modifier que ces colonnes de son message (pas is_ai, pas la conversation).
+revoke update on public.messages from authenticated, anon;
+grant  update (original_text, detected_lang, status, error) on public.messages to authenticated;

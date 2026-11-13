@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { addRooms, createHotel, deleteRoom, removeStaff } from "@/app/hotel/actions";
 import LanguageSelect from "@/components/LanguageSelect";
 import CopyLink from "@/components/CopyLink";
+import AssistantSettings from "@/components/AssistantSettings";
 import { getMyHotel } from "@/lib/hotel";
 import { getOrigin } from "@/lib/origin";
 import { qrSvg } from "@/lib/qr";
@@ -127,9 +128,24 @@ export default async function HotelPage() {
         )}
       </section>
 
+      {/* Assistant IA */}
+      <section className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-100">
+        <h2 className="text-lg font-semibold">
+          3. Assistant IA {hotel.assistant_enabled && <span className="ml-1 rounded-full bg-emerald-100 px-2 py-0.5 text-xs text-emerald-700">activé</span>}
+        </h2>
+        <p className="mt-1 text-sm text-slate-600">
+          L’IA répond seule, dans la langue du client, aux questions dont la réponse est dans vos infos pratiques (Wi-Fi,
+          horaires, parking…) — même à 3 h du matin, sans réveiller la réception. Tout le reste (demande, problème,
+          plainte, urgence) vous est transmis comme d’habitude. Elle n’invente jamais rien.
+        </p>
+        <div className="mt-4">
+          <AssistantSettings hotelId={hotel.id} enabled={hotel.assistant_enabled} info={hotel.assistant_info} canEdit={isOwner} />
+        </div>
+      </section>
+
       {/* Équipe */}
       <section className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-100">
-        <h2 className="text-lg font-semibold">3. L’équipe de réception</h2>
+        <h2 className="text-lg font-semibold">4. L’équipe de réception</h2>
         <p className="mt-1 text-sm text-slate-600">
           Tous les membres reçoivent les messages des clients et peuvent répondre (équipe de jour, de nuit, remplaçants).
         </p>

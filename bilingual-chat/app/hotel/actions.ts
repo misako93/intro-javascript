@@ -74,3 +74,18 @@ export async function removeStaff(formData: FormData) {
   }
   revalidatePath("/hotel");
 }
+
+export async function updateAssistant(formData: FormData) {
+  const { supabase } = await requireUser();
+  const hotelId = String(formData.get("hotel_id") ?? "");
+  if (!UUID_RE.test(hotelId)) throw new Error("Hôtel invalide");
+  const { error } = await supabase
+    .from("hotels")
+    .update({
+      assistant_enabled: formData.get("enabled") === "on",
+      assistant_info: String(formData.get("info") ?? "").slice(0, 8000),
+    })
+    .eq("id", hotelId);
+  if (error) throw new Error("Enregistrement impossible (réservé au responsable de l’hôtel)");
+  revalidatePath("/hotel");
+}

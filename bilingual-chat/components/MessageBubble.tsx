@@ -16,6 +16,8 @@ type Props = {
   mine: boolean;
   /** Langue dans laquelle afficher la traduction pour moi */
   wantedLang: string;
+  /** Nom affiché au-dessus du message (ex. collègue de la réception) */
+  label?: string;
   onTranslate: (messageId: string, lang: string) => Promise<boolean>;
 };
 
@@ -47,7 +49,7 @@ function AudioPlayer({ path }: { path: string }) {
   return <audio controls preload="metadata" src={src} className="h-10 w-56 max-w-full" />;
 }
 
-export default function MessageBubble({ message, mine, wantedLang, onTranslate }: Props) {
+export default function MessageBubble({ message, mine, wantedLang, onTranslate, label }: Props) {
   const t = useT();
   const [retry, setRetry] = useState<"idle" | "loading" | "failed">("idle");
   const fromLang = message.detected_lang || message.source_lang;
@@ -84,6 +86,12 @@ export default function MessageBubble({ message, mine, wantedLang, onTranslate }
           mine ? "rounded-br-md bg-emerald-600 text-white" : "rounded-bl-md bg-white text-slate-900"
         }`}
       >
+        {(message.is_ai || label) && (
+          <p className={`mb-1 text-xs font-semibold ${mine ? "text-emerald-100" : "text-emerald-700"}`}>
+            {message.is_ai ? `🤖 ${t("assistant")}` : label}
+          </p>
+        )}
+
         {/* Message original */}
         {message.kind === "audio" && message.audio_path && (
           <div className="mb-1.5">

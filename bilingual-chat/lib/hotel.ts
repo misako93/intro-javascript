@@ -6,6 +6,8 @@ export type MyHotel = {
   default_lang: string;
   desk_token: string;
   staff_invite_token: string;
+  assistant_enabled: boolean;
+  assistant_info: string;
   role: "owner" | "staff";
 };
 
@@ -13,7 +15,7 @@ export type MyHotel = {
 export async function getMyHotel(db: SupabaseClient, userId: string): Promise<MyHotel | null> {
   const { data } = await db
     .from("hotel_staff")
-    .select("role, hotels(id, name, default_lang, desk_token, staff_invite_token)")
+    .select("role, hotels(id, name, default_lang, desk_token, staff_invite_token, assistant_enabled, assistant_info)")
     .eq("user_id", userId)
     .order("joined_at", { ascending: true })
     .limit(1)

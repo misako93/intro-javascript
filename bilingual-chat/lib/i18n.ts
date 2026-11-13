@@ -39,6 +39,7 @@ const fr = {
   send: "Envoyer",
   record: "Message vocal",
   cancel: "Annuler",
+  assistant: "Assistant de l’hôtel",
 };
 
 export type UiKey = keyof typeof fr;
@@ -77,6 +78,7 @@ const en: Dict = {
   send: "Send",
   record: "Voice message",
   cancel: "Cancel",
+  assistant: "Hotel assistant",
 };
 
 const ar: Dict = {
@@ -112,6 +114,7 @@ const ar: Dict = {
   send: "إرسال",
   record: "رسالة صوتية",
   cancel: "إلغاء",
+  assistant: "مساعد الفندق",
 };
 
 const es: Dict = {
@@ -147,6 +150,7 @@ const es: Dict = {
   send: "Enviar",
   record: "Mensaje de voz",
   cancel: "Cancelar",
+  assistant: "Asistente del hotel",
 };
 
 const de: Dict = {
@@ -182,6 +186,7 @@ const de: Dict = {
   send: "Senden",
   record: "Sprachnachricht",
   cancel: "Abbrechen",
+  assistant: "Hotel-Assistent",
 };
 
 const it: Dict = {
@@ -217,6 +222,7 @@ const it: Dict = {
   send: "Invia",
   record: "Messaggio vocale",
   cancel: "Annulla",
+  assistant: "Assistente dell’hotel",
 };
 
 const pt: Dict = {
@@ -252,6 +258,7 @@ const pt: Dict = {
   send: "Enviar",
   record: "Mensagem de voz",
   cancel: "Cancelar",
+  assistant: "Assistente do hotel",
 };
 
 const tr: Dict = {
@@ -287,6 +294,7 @@ const tr: Dict = {
   send: "Gönder",
   record: "Sesli mesaj",
   cancel: "İptal",
+  assistant: "Otel asistanı",
 };
 
 const ru: Dict = {
@@ -322,6 +330,7 @@ const ru: Dict = {
   send: "Отправить",
   record: "Голосовое сообщение",
   cancel: "Отмена",
+  assistant: "Ассистент отеля",
 };
 
 const zh: Dict = {
@@ -357,6 +366,7 @@ const zh: Dict = {
   send: "发送",
   record: "语音消息",
   cancel: "取消",
+  assistant: "酒店助手",
 };
 
 const ur: Dict = {
@@ -392,6 +402,7 @@ const ur: Dict = {
   send: "بھیجیں",
   record: "صوتی پیغام",
   cancel: "منسوخ",
+  assistant: "ہوٹل اسسٹنٹ",
 };
 
 const hi: Dict = {
@@ -427,6 +438,7 @@ const hi: Dict = {
   send: "भेजें",
   record: "वॉइस संदेश",
   cancel: "रद्द करें",
+  assistant: "होटल सहायक",
 };
 
 const id: Dict = {
@@ -462,6 +474,7 @@ const id: Dict = {
   send: "Kirim",
   record: "Pesan suara",
   cancel: "Batal",
+  assistant: "Asisten hotel",
 };
 
 
@@ -498,6 +511,7 @@ const fa: Dict = {
   send: "ارسال",
   record: "پیام صوتی",
   cancel: "لغو",
+  assistant: "دستیار هتل",
 };
 
 const nl: Dict = {
@@ -533,6 +547,7 @@ const nl: Dict = {
   send: "Verzenden",
   record: "Spraakbericht",
   cancel: "Annuleren",
+  assistant: "Hotelassistent",
 };
 
 const bn: Dict = {
@@ -568,6 +583,7 @@ const bn: Dict = {
   send: "পাঠান",
   record: "ভয়েস বার্তা",
   cancel: "বাতিল",
+  assistant: "হোটেল সহকারী",
 };
 
 const ms: Dict = {
@@ -603,6 +619,7 @@ const ms: Dict = {
   send: "Hantar",
   record: "Mesej suara",
   cancel: "Batal",
+  assistant: "Pembantu hotel",
 };
 
 const tl: Dict = {
@@ -638,6 +655,7 @@ const tl: Dict = {
   send: "Ipadala",
   record: "Voice message",
   cancel: "Kanselahin",
+  assistant: "Assistant ng hotel",
 };
 
 const sw: Dict = {
@@ -673,6 +691,7 @@ const sw: Dict = {
   send: "Tuma",
   record: "Ujumbe wa sauti",
   cancel: "Ghairi",
+  assistant: "Msaidizi wa hoteli",
 };
 
 const DICTS: Record<string, Dict> = { fr, en, ar, es, de, it, pt, tr, ru, zh, ur, hi, id, fa, nl, bn, ms, tl, sw };

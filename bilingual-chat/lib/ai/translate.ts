@@ -1,4 +1,5 @@
 import { getLanguage } from "@/lib/languages";
+import { callLLM } from "@/lib/ai/llm";
 
 export type ContextLine = { speaker: "A" | "B"; text: string };
 
@@ -35,64 +36,11 @@ function buildPrompts({ text, from, to, context = [] }: TranslateInput) {
   return { system, user };
 }
 
-async function withAnthropic(system: string, user: string): Promise<string> {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "x-api-key": process.env.ANTHROPIC_API_KEY!,
-      "anthropic-version": "2023-06-01",
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      model: process.env.ANTHROPIC_MODEL || "claude-haiku-5-5",
-      max_tokens: 2048,
-      system,
-      messages: [{ role: "user", content: user }],
-    }),
-  });
-  if (!res.ok) throw new Error(`Claude ${res.status}: ${(await res.text()).slice(0, 300)}`);
-  const data = (await res.json()) as { content?: { type: string; text?: string }[] };
-  return (data.content ?? [])
-    .filter((b) => b.type === "text")
-    .map((b) => b.text ?? "")
-    .join("")
-    .trim();
-}
-
-async function withOpenAI(system: string, user: string): Promise<string> {
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      model: process.env.OPENAI_TRANSLATION_MODEL || "gpt-4o-mini",
-      temperature: 0.2,
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: user },
-      ],
-    }),
-  });
-  if (!res.ok) throw new Error(`OpenAI ${res.status}: ${(await res.text()).slice(0, 300)}`);
-  const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
-  return (data.choices?.[0]?.message?.content ?? "").trim();
-}
-
-function pickProvider(): "anthropic" | "openai" {
-  const forced = process.env.TRANSLATION_PROVIDER;
-  if (forced === "anthropic" || forced === "openai") return forced;
-  if (process.env.ANTHROPIC_API_KEY) return "anthropic";
-  if (process.env.OPENAI_API_KEY) return "openai";
-  throw new Error("Aucune clé IA configurée (ANTHROPIC_API_KEY ou OPENAI_API_KEY)");
-}
-
 /** Traduction contextuelle d'un message. */
 export async function translateText(input: TranslateInput): Promise<string> {
   if (!input.text.trim() || input.from === input.to) return input.text;
   const { system, user } = buildPrompts(input);
-  const out = pickProvider() === "anthropic" ? await withAnthropic(system, user) : await withOpenAI(system, user);
+  const out = await callLLM({ system, user });
   if (!out) throw new Error("Traduction vide");
   return out;
 }

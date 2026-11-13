@@ -40,5 +40,7 @@ export type Message = {
   translations: Record<string, string>;
   status: "processing" | "ready" | "error";
   error: string | null;
+  /** Réponse automatique de l'assistant IA de l'hôtel */
+  is_ai?: boolean;
   created_at: string;
 };

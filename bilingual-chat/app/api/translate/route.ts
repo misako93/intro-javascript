@@ -7,6 +7,7 @@ import { UUID_RE } from "@/lib/utils";
 import { afterSend, getRoomBilling } from "@/lib/billing";
 import { getParticipants, recipientsOf } from "@/lib/participants";
 import { notifyRoom } from "@/lib/push";
+import { runAssistant } from "@/lib/assistant";
 import type { Message } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -101,8 +102,13 @@ export async function POST(request: NextRequest) {
     after(async () => {
       const db = createTokenClient(accessToken);
       const langs = await targetLanguagesFor(db, roomId, user.id);
-      const translations = await translateMessage(db, message as Message, langs);
-      await notifyRoom(message as Message, translations);
+      // Traduction et assistant IA en parallèle (le client d'un hôtel peut avoir sa réponse en quelques secondes)
+      const [translations, assistant] = await Promise.all([
+        translateMessage(db, message as Message, langs),
+        me.role === "member" ? runAssistant(message as Message) : Promise.resolve({ handled: false }),
+      ]);
+      // L'IA a répondu seule → on ne réveille pas la réception.
+      if (!assistant.handled) await notifyRoom(message as Message, translations);
     });
   }
 

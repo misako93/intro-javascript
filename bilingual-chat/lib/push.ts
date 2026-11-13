@@ -57,7 +57,7 @@ async function sendToRecipients(recipients: Recipient[], build: (r: Recipient) =
   if (expired.length) await admin.from("push_subscriptions").delete().in("id", expired);
 }
 
-type RoomInfo = { hotel_id: string | null; room_label: string | null; created_by: string };
+type RoomInfo = { hotel_id: string | null; room_label: string | null; created_by: string; hotel_name?: string };
 
 /** Participants vus côté serveur (clé service_role) : membres + équipe de l'hôtel. */
 async function roomParticipants(roomId: string) {
@@ -71,6 +71,8 @@ async function roomParticipants(roomId: string) {
     role: "member",
   }));
   if (room?.hotel_id) {
+    const { data: h } = await admin.from("hotels").select("name").eq("id", room.hotel_id).maybeSingle();
+    (room as RoomInfo).hotel_name = h?.name;
     const { data: staff } = await admin
       .from("hotel_staff")
       .select("user_id, display_name, my_lang")
@@ -120,7 +122,9 @@ export async function notifyRoom(message: Message, translations: Record<string, 
         message.original_text ||
         "🎤";
       const isStaffRecipient = recipients.find((p) => p.user_id === r.user_id)?.role === "staff";
-      const senderName = sender?.display_name || (isStaffRecipient ? "Client" : "") || "Nouveau message";
+      const senderName = message.is_ai
+        ? `🤖 ${room?.hotel_name || "Assistant"}` // réponse de l'assistant IA, au nom de l'hôtel
+        : sender?.display_name || (isStaffRecipient ? "Client" : "") || "Nouveau message";
       return {
         kind: firstGuestMessage ? "join" : "message",
         title:

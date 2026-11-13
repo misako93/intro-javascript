@@ -136,7 +136,9 @@ export default function ChatRoom({ room, hotel, initialMembers, initialMessages,
               setMessages((prev) => prev.filter((m) => m.id !== oldId));
             } else {
               const msg = payload.new as Message;
-              if (payload.eventType === "INSERT" && msg.sender_id !== userId) playChime("message");
+              if (payload.eventType === "INSERT" && msg.sender_id !== userId && !(mode === "staff" && msg.is_ai)) {
+                playChime("message");
+              }
               upsertMessage(msg);
             }
           },
@@ -379,13 +381,28 @@ export default function ChatRoom({ room, hotel, initialMembers, initialMessages,
           )}
 
           {messages.map((m) => {
-            const mine = m.sender_id === userId;
+            // Réception : tout ce qui vient de l'hôtel (moi, mes collègues, l'assistant IA) est "de mon côté".
+            const fromHotel = mode === "staff" && m.sender_id !== partner?.user_id;
+            const mine = mode === "staff" ? fromHotel : m.sender_id === userId;
+            const wanted =
+              mode === "staff"
+                ? m.is_ai || !fromHotel
+                  ? me.my_lang // je lis l'assistant et le client dans ma langue
+                  : myTarget // je vérifie la traduction envoyée au client
+                : mine
+                  ? myTarget
+                  : me.my_lang;
+            const colleague =
+              fromHotel && !m.is_ai && m.sender_id !== userId
+                ? members.find((p) => p.user_id === m.sender_id)?.display_name || "Collègue"
+                : undefined;
             return (
               <MessageBubble
                 key={m.id}
                 message={m}
                 mine={mine}
-                wantedLang={mine ? myTarget : me.my_lang}
+                wantedLang={wanted}
+                label={colleague}
                 onTranslate={translate}
               />
             );

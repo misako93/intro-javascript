@@ -8,6 +8,7 @@ import { UUID_RE } from "@/lib/utils";
 import { afterSend, getRoomBilling } from "@/lib/billing";
 import { getParticipants, recipientsOf } from "@/lib/participants";
 import { notifyRoom } from "@/lib/push";
+import { runAssistant } from "@/lib/assistant";
 import type { Message } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -123,8 +124,11 @@ export async function POST(request: NextRequest) {
         if (updateError || !updated) throw updateError ?? new Error("Mise à jour impossible");
 
         const langs = await targetLanguagesFor(db, roomId, user.id);
-        const translations = await translateMessage(db, updated as Message, langs);
-        await notifyRoom(updated as Message, translations);
+        const [translations, assistant] = await Promise.all([
+          translateMessage(db, updated as Message, langs),
+          me.role === "member" ? runAssistant(updated as Message) : Promise.resolve({ handled: false }),
+        ]);
+        if (!assistant.handled) await notifyRoom(updated as Message, translations);
       } catch (err) {
         console.error("[transcribe]", err);
         await db

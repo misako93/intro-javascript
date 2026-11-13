@@ -120,6 +120,14 @@ npm run dev                  # → http://localhost:3000
 
 **Équipe :** tous les réceptionnistes voient toutes les conversations de l'hôtel et peuvent répondre. Un message de client sonne chez toute l'équipe ; une réponse de la réception n'est envoyée qu'au client. Le responsable peut retirer un membre : il perd l'accès immédiatement.
 
+**🤖 Assistant IA (réponses automatiques)** — page *Mon hôtel* → section 3 :
+- Remplissez la fiche **« Infos pratiques »** (Wi-Fi, horaires, check-out, parking, navette, numéro d'urgence…) et cochez « Activer ».
+- Question dont la réponse est dans la fiche → l'IA répond **seule, dans la langue du client**, en quelques secondes, et **la réception n'est pas dérangée** (idéal la nuit).
+- Demande à traiter, problème, plainte, urgence ou info absente de la fiche → l'IA prévient le client que c'est transmis, et la réception est notifiée comme d'habitude.
+- L'IA **n'invente rien** et ne promet jamais de réduction ni de remboursement. Ses messages portent l'étiquette « 🤖 Assistant de l'hôtel » ; la réception voit leur traduction en français.
+- Zone **« Tester comme un client »** : vérifiez les réponses avant d'activer (parfait aussi pour une démo commerciale).
+- Les réponses de l'IA ne sont pas décomptées du quota de messages de l'hôtel.
+
 **Abonnement :** pour un hôtel, l'abonnement du responsable couvre toute l'équipe et tous les clients ; l'essai gratuit est de `FREE_MESSAGES_PER_HOTEL` messages (200 par défaut) pour l'ensemble de l'hôtel.
 
 ---
@@ -172,12 +180,15 @@ bilingual-chat/
 │   ├── NotificationsBanner.tsx  # Activation des notifications
 │   ├── PwaSetup.tsx             # Enregistre le service worker + débloque le son
 │   ├── DashboardLive.tsx        # Tableau de bord en direct (réception)
+│   ├── AssistantSettings.tsx    # Réglages + test de l'assistant IA
 │   ├── GuestStart.tsx           # Accueil du client d'hôtel (langue, prénom, sans compte)
 │   ├── I18n.tsx                 # Interface traduite pour les clients
 │   ├── NewRoomForm.tsx · LanguageSelect.tsx · LoginForm.tsx
 └── lib/
     ├── ai/transcribe.ts         # Appel Whisper
-    ├── ai/translate.ts          # Traduction contextuelle (Claude ou GPT-4o-mini)
+    ├── ai/llm.ts                # Appel au modèle (Claude ou GPT-4o-mini), partagé
+    ├── ai/translate.ts          # Traduction contextuelle
+    ├── assistant.ts             # Assistant IA de l'hôtel (répondre seul ou transmettre)
     ├── messages.ts              # Quelles langues traduire + enregistrement
     ├── billing.ts · stripe.ts   # Règle « un abonné suffit » + synchro Stripe
     ├── push.ts · pwa.ts         # Notifications (serveur / navigateur)
