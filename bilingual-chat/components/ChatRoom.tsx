@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import Composer from "@/components/Composer";
@@ -9,16 +10,19 @@ import MessageBubble from "@/components/MessageBubble";
 import { InviteButton, InviteCard } from "@/components/InviteButton";
 import NotificationsBanner from "@/components/NotificationsBanner";
 import { Paywall, TrialBanner } from "@/components/Billing";
+import { useT } from "@/components/I18n";
 import type { RoomBilling } from "@/lib/billing";
 import { getLanguage } from "@/lib/languages";
 import { playChime } from "@/lib/sound";
-import type { Member, Message, Room } from "@/lib/types";
+import type { HotelContext, Member, Message, Participant, Room } from "@/lib/types";
 
 type Pending = { tempId: string; kind: "text" | "audio"; text: string; failed?: boolean; paywall?: boolean; retry: () => void };
 
 type Props = {
   room: Room;
-  initialMembers: Member[];
+  /** Conversation d'hôtel (QR code) : nom de l'hôtel, chambre, et si je fais partie de l'équipe */
+  hotel?: HotelContext | null;
+  initialMembers: Participant[];
   initialMessages: Message[];
   userId: string;
   initialBilling: RoomBilling;
@@ -27,19 +31,30 @@ type Props = {
 
 const byDate = (a: Message, b: Message) => a.created_at.localeCompare(b.created_at);
 
-export default function ChatRoom({ room, initialMembers, initialMessages, userId, initialBilling, priceLabel }: Props) {
+export default function ChatRoom({ room, hotel, initialMembers, initialMessages, userId, initialBilling, priceLabel }: Props) {
+  const t = useT();
+  const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
   const [messages, setMessages] = useState<Message[]>(initialMessages);
-  const [members, setMembers] = useState<Member[]>(initialMembers);
+  const [members, setMembers] = useState<Participant[]>(initialMembers);
   const [pending, setPending] = useState<Pending[]>([]);
   const [online, setOnline] = useState(true);
   const [billing, setBilling] = useState<RoomBilling>(initialBilling);
   const [toast, setToast] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
 
+  // 3 vues : conversation classique, réceptionniste (staff), ou client de l'hôtel (guest)
+  const mode: "standard" | "staff" | "guest" = !hotel ? "standard" : hotel.is_staff ? "staff" : "guest";
   const me = members.find((m) => m.user_id === userId)!;
-  const partner = members.find((m) => m.user_id !== userId);
-  const partnerName = partner?.display_name || room.partner_name || "Votre contact";
+  const partner =
+    mode === "staff" ? members.find((m) => m.role === "member") : members.find((m) => m.user_id !== userId);
+  const partnerName =
+    mode === "guest"
+      ? hotel!.hotel_name
+      : partner?.display_name || (mode === "staff" ? "Client" : room.partner_name) || "Votre contact";
+  const place = hotel ? (hotel.room_label ? t("room", { label: hotel.room_label }) : t("desk")) : "";
+  // Un réceptionniste voit sa propre traduction dans la langue du client, quelle qu'elle soit.
+  const myTarget = mode === "staff" ? (partner?.my_lang ?? me.target_lang) : me.target_lang;
 
   const upsertMessage = useCallback((msg: Message) => {
     setMessages((prev) => {
@@ -51,10 +66,10 @@ export default function ChatRoom({ room, initialMembers, initialMessages, userId
     });
   }, []);
 
-  const upsertMember = useCallback((member: Member) => {
+  const upsertMember = useCallback((member: Member & { role?: Participant["role"] }) => {
     setMembers((prev) => {
       const i = prev.findIndex((m) => m.user_id === member.user_id);
-      if (i === -1) return [...prev, member];
+      if (i === -1) return [...prev, { role: "member" as const, ...member }];
       const next = [...prev];
       next[i] = { ...next[i], ...member };
       return next;
@@ -133,7 +148,9 @@ export default function ChatRoom({ room, initialMembers, initialMessages, userId
             const member = payload.new as Member;
             if (payload.eventType === "INSERT" && member.user_id !== userId) {
               playChime("join");
-              setToast(`🛎️ ${member.display_name || "Votre contact"} vient de rejoindre la conversation`);
+              if (mode !== "guest") {
+                setToast(`🛎️ ${member.display_name || "Votre contact"} vient de rejoindre la conversation`);
+              }
               setTimeout(() => setToast(""), 4000);
             }
             upsertMember(member);
@@ -157,7 +174,7 @@ export default function ChatRoom({ room, initialMembers, initialMessages, userId
       document.removeEventListener("visibilitychange", onVisible);
       if (channel) supabase.removeChannel(channel);
     };
-  }, [supabase, room.id, userId, upsertMessage, upsertMember, resync]);
+  }, [supabase, room.id, userId, mode, upsertMessage, upsertMember, resync]);
 
   // Défilement automatique vers le dernier message
   useEffect(() => {
@@ -241,69 +258,119 @@ export default function ChatRoom({ room, initialMembers, initialMessages, userId
   async function updateLanguages(patch: Partial<Pick<Member, "my_lang" | "target_lang">>) {
     const previous = { ...me };
     upsertMember({ ...me, ...patch });
-    const { error } = await supabase.from("room_members").update(patch).eq("room_id", room.id).eq("user_id", userId);
+    // Réceptionniste : sa langue est enregistrée sur son profil d'équipe (vaut pour tous les clients).
+    const { error } =
+      mode === "staff"
+        ? await supabase
+            .from("hotel_staff")
+            .update({ my_lang: patch.my_lang ?? me.my_lang })
+            .eq("hotel_id", hotel!.hotel_id)
+            .eq("user_id", userId)
+        : await supabase.from("room_members").update(patch).eq("room_id", room.id).eq("user_id", userId);
     if (error) upsertMember(previous);
+    // Client de l'hôtel : l'interface passe dans sa nouvelle langue.
+    else if (mode === "guest" && patch.my_lang) router.refresh();
   }
 
   const myLang = getLanguage(me.my_lang);
+  const partnerLang = partner ? getLanguage(partner.my_lang) : null;
+
+  const subtitle = !online
+    ? t("reconnecting")
+    : mode === "guest"
+      ? place
+      : mode === "staff"
+        ? `${place}${partnerLang ? ` · ${partnerLang.flag} ${partnerLang.label}` : ""}`
+        : partnerLang
+          ? `Lit en ${partnerLang.flag} ${partnerLang.label}`
+          : "Pas encore rejoint";
 
   return (
     <div className="flex h-dvh flex-col">
       {/* En-tête */}
       <header className="border-b border-slate-200 bg-white">
         <div className="mx-auto flex max-w-3xl items-center gap-3 px-3 py-2.5">
-          <Link href="/dashboard" className="grid h-10 w-10 place-items-center rounded-full text-xl text-slate-600 hover:bg-slate-100" aria-label="Retour">
-            ←
-          </Link>
+          {mode !== "guest" && (
+            <Link href="/dashboard" className="grid h-10 w-10 place-items-center rounded-full text-xl text-slate-600 hover:bg-slate-100" aria-label="Retour">
+              ←
+            </Link>
+          )}
           <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-emerald-100 font-semibold text-emerald-700">
-            {partnerName.charAt(0).toUpperCase()}
+            {mode === "guest" ? "🛎️" : partnerName.charAt(0).toUpperCase()}
           </div>
           <div className="min-w-0 flex-1">
-            <p className="truncate font-semibold leading-tight">{partnerName}</p>
-            <p className="truncate text-xs text-slate-500">
-              {!online ? "Reconnexion…" : partner ? `Lit en ${getLanguage(partner.my_lang).flag} ${getLanguage(partner.my_lang).label}` : "Pas encore rejoint"}
-            </p>
+            <p className="truncate font-semibold leading-tight" dir="auto">{partnerName}</p>
+            <p className="truncate text-xs text-slate-500">{subtitle}</p>
           </div>
-          <InviteButton token={room.invite_token} />
+          {mode === "standard" && <InviteButton token={room.invite_token} />}
         </div>
 
         {/* Paramètres de langue */}
-        <div className="mx-auto flex max-w-3xl items-end gap-2 px-3 pb-3">
-          <label className="flex min-w-0 flex-1 flex-col text-xs font-medium text-slate-500">
-            Ma langue
-            <LanguageSelect value={me.my_lang} onChange={(v) => updateLanguages({ my_lang: v })} className="mt-1 w-full py-2 text-sm" aria-label="Ma langue" />
-          </label>
-          <button
-            onClick={() => updateLanguages({ my_lang: me.target_lang, target_lang: me.my_lang })}
-            className="mb-1 grid h-9 w-9 shrink-0 place-items-center rounded-full text-slate-500 hover:bg-slate-100"
-            aria-label="Inverser les langues"
-            title="Inverser"
-          >
-            ⇄
-          </button>
-          <label className="flex min-w-0 flex-1 flex-col text-xs font-medium text-slate-500">
-            Langue de traduction
-            <LanguageSelect value={me.target_lang} onChange={(v) => updateLanguages({ target_lang: v })} className="mt-1 w-full py-2 text-sm" aria-label="Langue de traduction" />
-          </label>
-        </div>
+        {mode === "guest" ? (
+          <div className="mx-auto max-w-3xl px-3 pb-3">
+            <label className="flex flex-col text-xs font-medium text-slate-500">
+              {t("my_language")}
+              <LanguageSelect native value={me.my_lang} onChange={(v) => updateLanguages({ my_lang: v })} className="mt-1 w-full py-2 text-sm" aria-label={t("my_language")} />
+            </label>
+          </div>
+        ) : mode === "staff" ? (
+          <div className="mx-auto flex max-w-3xl items-end gap-2 px-3 pb-3">
+            <label className="flex min-w-0 flex-1 flex-col text-xs font-medium text-slate-500">
+              Ma langue
+              <LanguageSelect value={me.my_lang} onChange={(v) => updateLanguages({ my_lang: v })} className="mt-1 w-full py-2 text-sm" aria-label="Ma langue" />
+            </label>
+            <span className="mb-2.5 text-slate-400">⇄</span>
+            <div className="flex min-w-0 flex-1 flex-col text-xs font-medium text-slate-500">
+              Langue du client
+              <p className="mt-1 truncate rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                {partnerLang ? `${partnerLang.flag} ${partnerLang.label}` : "—"}
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div className="mx-auto flex max-w-3xl items-end gap-2 px-3 pb-3">
+            <label className="flex min-w-0 flex-1 flex-col text-xs font-medium text-slate-500">
+              Ma langue
+              <LanguageSelect value={me.my_lang} onChange={(v) => updateLanguages({ my_lang: v })} className="mt-1 w-full py-2 text-sm" aria-label="Ma langue" />
+            </label>
+            <button
+              onClick={() => updateLanguages({ my_lang: me.target_lang, target_lang: me.my_lang })}
+              className="mb-1 grid h-9 w-9 shrink-0 place-items-center rounded-full text-slate-500 hover:bg-slate-100"
+              aria-label="Inverser les langues"
+              title="Inverser"
+            >
+              ⇄
+            </button>
+            <label className="flex min-w-0 flex-1 flex-col text-xs font-medium text-slate-500">
+              Langue de traduction
+              <LanguageSelect value={me.target_lang} onChange={(v) => updateLanguages({ target_lang: v })} className="mt-1 w-full py-2 text-sm" aria-label="Langue de traduction" />
+            </label>
+          </div>
+        )}
       </header>
 
-      <TrialBanner billing={billing} roomId={room.id} />
-      {partner && <NotificationsBanner partnerName={partnerName} />}
+      {mode !== "guest" && <TrialBanner billing={billing} roomId={room.id} />}
+      {(partner || mode === "guest") && <NotificationsBanner partnerName={partnerName} />}
 
       {/* Messages */}
       <main className="chat-bg flex-1 overflow-y-auto">
         <div className="mx-auto max-w-3xl space-y-2 px-3 py-4">
-          {billing.enabled && billing.premium && billing.sponsorName && (
+          {mode === "standard" && billing.enabled && billing.premium && billing.sponsorName && (
             <p className="text-center text-xs text-slate-500">
               ✨ Conversation illimitée, offerte par{" "}
               {billing.sponsorName === me.display_name ? "votre abonnement" : billing.sponsorName}
             </p>
           )}
 
-          {!partner && <InviteCard token={room.invite_token} partnerName={partnerName} />}
+          {mode === "standard" && !partner && <InviteCard token={room.invite_token} partnerName={partnerName} />}
 
-          {messages.length === 0 && partner && (
+          {messages.length === 0 && mode === "guest" && (
+            <p className="px-4 py-10 text-center text-slate-500" dir="auto">{t("empty_guest")}</p>
+          )}
+          {messages.length === 0 && mode === "staff" && (
+            <p className="py-10 text-center text-slate-500">Le client n’a pas encore écrit.</p>
+          )}
+          {messages.length === 0 && mode === "standard" && partner && (
             <p className="py-10 text-center text-slate-500">
               Écrivez ou enregistrez un vocal en {myLang.flag} {myLang.label}.<br />
               {partnerName} le recevra traduit instantanément.
@@ -317,7 +384,7 @@ export default function ChatRoom({ room, initialMembers, initialMessages, userId
                 key={m.id}
                 message={m}
                 mine={mine}
-                wantedLang={mine ? me.target_lang : me.my_lang}
+                wantedLang={mine ? myTarget : me.my_lang}
                 onTranslate={translate}
               />
             );
@@ -327,14 +394,14 @@ export default function ChatRoom({ room, initialMembers, initialMessages, userId
             <div key={p.tempId} className="flex justify-end">
               <div className="max-w-[85%] rounded-2xl rounded-br-md bg-emerald-600/70 px-3.5 py-2.5 text-white sm:max-w-[70%]">
                 <p dir="auto" className="whitespace-pre-wrap break-words">
-                  {p.kind === "audio" ? "🎤 Message vocal" : p.text}
+                  {p.kind === "audio" ? `🎤 ${t("record")}` : p.text}
                 </p>
                 {p.failed ? (
                   <button onClick={p.retry} className="mt-1 text-sm font-semibold underline">
-                    {p.paywall ? "Abonnement requis · Renvoyer" : "Échec de l’envoi · Réessayer"}
+                    {p.paywall && mode !== "guest" ? "Abonnement requis · Renvoyer" : t("send_failed")}
                   </button>
                 ) : (
-                  <p className="mt-1 text-right text-[11px] text-emerald-50">Envoi…</p>
+                  <p className="mt-1 text-right text-[11px] text-emerald-50">{t("sending")}</p>
                 )}
               </div>
             </div>
@@ -351,7 +418,16 @@ export default function ChatRoom({ room, initialMembers, initialMessages, userId
 
       <div className="mx-auto w-full max-w-3xl">
         {billing.canSend ? (
-          <Composer onSendText={sendText} onSendAudio={sendAudio} placeholder={`Écrivez en ${myLang.label}…`} />
+          <Composer
+            onSendText={sendText}
+            onSendAudio={sendAudio}
+            placeholder={mode === "guest" ? t("placeholder", { lang: myLang.native }) : `Écrivez en ${myLang.label}…`}
+          />
+        ) : mode === "guest" ? (
+          // Le client ne voit jamais d'écran de paiement : c'est l'hôtel qui s'abonne.
+          <p className="border-t border-slate-200 bg-white px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 text-center text-slate-600" dir="auto">
+            {t("unavailable")}
+          </p>
         ) : (
           <Paywall billing={billing} roomId={room.id} partnerName={partnerName} priceLabel={priceLabel} />
         )}

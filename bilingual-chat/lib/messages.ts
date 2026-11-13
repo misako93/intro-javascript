@@ -1,27 +1,25 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { translateText, type ContextLine } from "@/lib/ai/translate";
 import { hasLetters, isLanguage, sameLanguage } from "@/lib/languages";
-import type { Member, Message } from "@/lib/types";
+import type { Message } from "@/lib/types";
+import { getParticipants, recipientsOf } from "@/lib/participants";
 
 /**
  * Langues dans lesquelles traduire un message :
- * la "langue de traduction" de l'expéditeur + la langue de chaque autre participant.
+ * la "langue de traduction" de l'expéditeur + la langue de chaque destinataire.
  */
 export async function targetLanguagesFor(db: SupabaseClient, roomId: string, senderId: string) {
-  const { data } = await db.from("room_members").select("user_id, my_lang, target_lang").eq("room_id", roomId);
-  const members = (data ?? []) as Pick<Member, "user_id" | "my_lang" | "target_lang">[];
+  const participants = await getParticipants(db, roomId);
+  const sender = participants.find((p) => p.user_id === senderId);
   const langs = new Set<string>();
-  for (const m of members) {
-    if (m.user_id === senderId) langs.add(m.target_lang);
-    else langs.add(m.my_lang);
-  }
+  if (sender) langs.add(sender.target_lang);
+  for (const r of recipientsOf(participants, senderId)) langs.add(r.my_lang);
   return [...langs];
 }
 
-/** Langues des autres participants (pour la détection de langue). */
+/** Langues des destinataires (pour la détection de langue). */
 export async function recipientLanguages(db: SupabaseClient, roomId: string, senderId: string) {
-  const { data } = await db.from("room_members").select("user_id, my_lang").eq("room_id", roomId);
-  return (data ?? []).filter((m) => m.user_id !== senderId).map((m) => m.my_lang as string);
+  return recipientsOf(await getParticipants(db, roomId), senderId).map((p) => p.my_lang);
 }
 
 async function loadContext(db: SupabaseClient, message: Message): Promise<ContextLine[]> {

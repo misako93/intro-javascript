@@ -1,10 +1,11 @@
 import { NextResponse, after, type NextRequest } from "next/server";
 import { createClient, createTokenClient } from "@/lib/supabase/server";
 import { isLanguage } from "@/lib/languages";
-import { needsTranslation, recipientLanguages, targetLanguagesFor, translateMessage } from "@/lib/messages";
+import { needsTranslation, targetLanguagesFor, translateMessage } from "@/lib/messages";
 import { detectMessageLanguage } from "@/lib/detect-language";
 import { UUID_RE } from "@/lib/utils";
 import { afterSend, getRoomBilling } from "@/lib/billing";
+import { getParticipants, recipientsOf } from "@/lib/participants";
 import { notifyRoom } from "@/lib/push";
 import type { Message } from "@/lib/types";
 
@@ -62,12 +63,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: `Message trop long (max ${MAX_LENGTH} caractères)` }, { status: 400 });
   }
 
-  const { data: me } = await supabase
-    .from("room_members")
-    .select("my_lang")
-    .eq("room_id", roomId)
-    .eq("user_id", user.id)
-    .maybeSingle();
+  // Membre de la conversation ou réceptionniste de l'hôtel
+  const participants = await getParticipants(supabase, roomId);
+  const me = participants.find((p) => p.user_id === user.id);
   if (!me) return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
 
   // Paywall : un seul abonné suffit pour couvrir toute la conversation.
@@ -83,7 +81,7 @@ export async function POST(request: NextRequest) {
       original_text: text,
       source_lang: me.my_lang,
       // Détection locale (instantanée, gratuite) de la langue réellement utilisée
-      detected_lang: detectMessageLanguage(text, me.my_lang, await recipientLanguages(supabase, roomId, user.id)),
+      detected_lang: detectMessageLanguage(text, me.my_lang, recipientsOf(participants, user.id).map((p) => p.my_lang)),
       status: "ready",
     })
     .select()

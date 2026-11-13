@@ -10,10 +10,13 @@ import { createClient } from "@/lib/supabase/server";
 import { getLanguage } from "@/lib/languages";
 import { APP_NAME, PRICE_LABEL } from "@/lib/config";
 import { formatRelative } from "@/lib/utils";
+import { getMyHotel } from "@/lib/hotel";
 
 type RoomRow = {
   id: string;
   partner_name: string;
+  hotel_id: string | null;
+  room_label: string | null;
   created_at: string;
   room_members: { user_id: string; display_name: string; my_lang: string; target_lang: string }[];
   messages: { original_text: string; kind: string; created_at: string; sender_id: string }[];
@@ -26,11 +29,13 @@ export default async function DashboardPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const [{ data }, { data: subscription }] = await Promise.all([
+  const guest = Boolean(user.is_anonymous); // client d'hôtel (session invité, sans compte)
+
+  const [{ data }, { data: subscription }, hotel] = await Promise.all([
     supabase
       .from("rooms")
       .select(
-        "id, partner_name, created_at, room_members(user_id, display_name, my_lang, target_lang), messages(original_text, kind, created_at, sender_id)",
+        "id, partner_name, hotel_id, room_label, created_at, room_members(user_id, display_name, my_lang, target_lang), messages(original_text, kind, created_at, sender_id)",
       )
       .order("created_at", { referencedTable: "messages", ascending: false })
       .limit(1, { referencedTable: "messages" }),
@@ -39,6 +44,7 @@ export default async function DashboardPage() {
       .select("status, current_period_end, cancel_at_period_end")
       .eq("user_id", user.id)
       .maybeSingle(),
+    guest ? Promise.resolve(null) : getMyHotel(supabase, user.id),
   ]);
   const subscribed =
     Boolean(subscription && ACTIVE_STATUSES.includes(subscription.status)) &&
@@ -49,10 +55,19 @@ export default async function DashboardPage() {
       const me = room.room_members.find((m) => m.user_id === user.id);
       const partner = room.room_members.find((m) => m.user_id !== user.id);
       const last = room.messages[0];
+      // Conversation d'hôtel vue par la réception : "Ahmed · Ch. 204" (ou "· Accueil")
+      const isHotelDesk = Boolean(room.hotel_id && !me);
+      const place = room.room_label ? `Ch. ${room.room_label}` : "Accueil";
       return {
         id: room.id,
-        name: partner?.display_name || room.partner_name || "Mon contact",
-        waiting: !partner,
+        name: isHotelDesk
+          ? `${partner?.display_name || "Client"} · ${place}`
+          : room.hotel_id
+            ? room.partner_name
+            : partner?.display_name || room.partner_name || "Mon contact",
+        waiting: !partner && !room.hotel_id,
+        hotelDesk: isHotelDesk,
+        guestLang: partner?.my_lang,
         me,
         last,
         activity: last?.created_at ?? room.created_at,
@@ -81,9 +96,27 @@ export default async function DashboardPage() {
         <NotificationsBanner partnerName="un client" />
       </div>
 
-      <NewRoomForm defaultMyLang={lastMe?.my_lang} defaultTargetLang={lastMe?.target_lang} />
+      {hotel ? (
+        <Link href="/hotel" className="mb-4 flex items-center gap-3 rounded-3xl bg-slate-900 p-4 text-white">
+          <span className="text-3xl">🏨</span>
+          <span className="flex-1">
+            <span className="block font-semibold">{hotel.name}</span>
+            <span className="text-sm text-slate-300">QR codes, chambres et équipe de réception</span>
+          </span>
+          <span className="text-slate-400">→</span>
+        </Link>
+      ) : (
+        !guest && (
+          <Link href="/hotel" className="mb-4 block rounded-3xl border-2 border-dashed border-slate-200 p-4 text-sm text-slate-600 hover:bg-white">
+            🏨 <strong>Vous êtes un hôtel ?</strong> Créez votre QR code d’accueil : vos clients vous écrivent dans leur
+            langue, toute l’équipe reçoit la traduction. →
+          </Link>
+        )
+      )}
 
-      {BILLING_ENABLED && (
+      {!guest && <NewRoomForm defaultMyLang={lastMe?.my_lang} defaultTargetLang={lastMe?.target_lang} />}
+
+      {BILLING_ENABLED && !guest && (
         <PlanCard
           active={subscribed}
           cancelAtPeriodEnd={Boolean(subscription?.cancel_at_period_end)}
@@ -99,13 +132,16 @@ export default async function DashboardPage() {
         <div className="rounded-3xl border-2 border-dashed border-slate-200 p-8 text-center text-slate-500">
           <p className="text-4xl">💬</p>
           <p className="mt-3">Aucune conversation pour le moment.</p>
-          <p className="text-sm">Créez-en une et envoyez le lien à votre interlocuteur.</p>
+          <p className="text-sm">
+            {hotel ? "Les messages de vos clients (QR code) apparaîtront ici." : "Créez-en une et envoyez le lien à votre interlocuteur."}
+          </p>
         </div>
       ) : (
         <ul className="divide-y divide-slate-100 overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-slate-100">
           {rooms.map((room) => {
             const my = getLanguage(room.me?.my_lang);
             const their = getLanguage(room.me?.target_lang);
+            const guestLang = getLanguage(room.guestLang);
             const preview = room.last
               ? room.last.kind === "audio" && !room.last.original_text
                 ? "🎤 Message vocal"
@@ -121,14 +157,14 @@ export default async function DashboardPage() {
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-baseline justify-between gap-2">
-                      <p className="truncate font-semibold">{room.name}</p>
+                      <p className="truncate font-semibold" dir="auto">{room.name}</p>
                       <span className="shrink-0 text-xs text-slate-400">{formatRelative(room.activity)}</span>
                     </div>
                     <p className="truncate text-sm text-slate-500" dir="auto">
                       {preview}
                     </p>
                     <p className="mt-0.5 text-xs text-slate-400">
-                      {my.flag} {my.label} ⇄ {their.flag} {their.label}
+                      {room.hotelDesk ? `🛎️ Client · ${guestLang.flag} ${guestLang.label}` : `${my.flag} ${my.label} ⇄ ${their.flag} ${their.label}`}
                       {room.waiting && (
                         <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-amber-700">Invitation envoyée ?</span>
                       )}

@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { getLanguage, hasLetters, sameLanguage } from "@/lib/languages";
 import { VOICE_BUCKET } from "@/lib/config";
 import { formatTime } from "@/lib/utils";
+import { useT } from "@/components/I18n";
 import type { Message } from "@/lib/types";
 
 const AUTO_RETRY_AFTER_MS = 12_000; // si la traduction n'est pas arrivée, on la redemande
@@ -47,6 +48,7 @@ function AudioPlayer({ path }: { path: string }) {
 }
 
 export default function MessageBubble({ message, mine, wantedLang, onTranslate }: Props) {
+  const t = useT();
   const [retry, setRetry] = useState<"idle" | "loading" | "failed">("idle");
   const fromLang = message.detected_lang || message.source_lang;
   const source = getLanguage(fromLang);
@@ -91,12 +93,12 @@ export default function MessageBubble({ message, mine, wantedLang, onTranslate }
 
         {message.status === "processing" && (
           <p className={`text-sm italic ${mine ? "text-emerald-100" : "text-slate-400"}`}>
-            <span className="inline-block animate-pulse">🎙️ Transcription en cours…</span>
+            <span className="inline-block animate-pulse">{t("transcribing")}</span>
           </p>
         )}
         {message.status === "error" && (
           <p className={`text-sm italic ${mine ? "text-emerald-100" : "text-red-500"}`}>
-            Le vocal n’a pas pu être transcrit. Il reste écoutable ci-dessus.
+            {t("voice_failed")}
           </p>
         )}
         {message.original_text && (
@@ -121,8 +123,8 @@ export default function MessageBubble({ message, mine, wantedLang, onTranslate }
                 <button
                   onClick={() => speak(translation, wantedLang)}
                   className={`shrink-0 rounded-full p-1 text-sm ${mine ? "hover:bg-white/15" : "hover:bg-slate-100"}`}
-                  aria-label="Écouter la traduction"
-                  title="Écouter"
+                  aria-label={t("listen")}
+                  title={t("listen")}
                 >
                   🔊
                 </button>
@@ -132,11 +134,11 @@ export default function MessageBubble({ message, mine, wantedLang, onTranslate }
                 onClick={requestTranslation}
                 className={`text-sm font-medium underline ${mine ? "text-emerald-50" : "text-emerald-700"}`}
               >
-                {retry === "failed" ? "Traduction indisponible · Réessayer" : `Traduire en ${target.label}`}
+                {retry === "failed" ? t("translate_failed") : t("translate", { lang: target.label })}
               </button>
             ) : (
               <p className={`animate-pulse text-sm italic ${mine ? "text-emerald-100" : "text-slate-400"}`}>
-                Traduction en {target.label}…
+                {t("translating", { lang: target.label })}
               </p>
             )}
           </div>

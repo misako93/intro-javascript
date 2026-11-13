@@ -57,58 +57,96 @@ async function sendToRecipients(recipients: Recipient[], build: (r: Recipient) =
   if (expired.length) await admin.from("push_subscriptions").delete().in("id", expired);
 }
 
-async function roomMembers(roomId: string) {
-  const { data } = await createAdminClient()
-    .from("room_members")
-    .select("user_id, display_name, my_lang")
-    .eq("room_id", roomId);
-  return (data ?? []) as Recipient[];
+type RoomInfo = { hotel_id: string | null; room_label: string | null; created_by: string };
+
+/** Participants vus côté serveur (clé service_role) : membres + équipe de l'hôtel. */
+async function roomParticipants(roomId: string) {
+  const admin = createAdminClient();
+  const [{ data: room }, { data: members }] = await Promise.all([
+    admin.from("rooms").select("hotel_id, room_label, created_by").eq("id", roomId).maybeSingle(),
+    admin.from("room_members").select("user_id, display_name, my_lang").eq("room_id", roomId),
+  ]);
+  const list: (Recipient & { role: "member" | "staff" })[] = ((members ?? []) as Recipient[]).map((m) => ({
+    ...m,
+    role: "member",
+  }));
+  if (room?.hotel_id) {
+    const { data: staff } = await admin
+      .from("hotel_staff")
+      .select("user_id, display_name, my_lang")
+      .eq("hotel_id", room.hotel_id);
+    for (const s of (staff ?? []) as Recipient[]) {
+      if (!list.some((m) => m.user_id === s.user_id)) list.push({ ...s, role: "staff" });
+    }
+  }
+  return { room: room as RoomInfo | null, participants: list };
+}
+
+function placeLabel(room: RoomInfo | null) {
+  if (!room?.hotel_id) return "";
+  return room.room_label ? ` · Ch. ${room.room_label}` : " · Accueil";
 }
 
 /**
- * Nouveau message → notifie les autres participants,
- * avec le texte DÉJÀ TRADUIT dans la langue de chacun (ou l'original si c'est déjà sa langue).
+ * Nouveau message → notifie les destinataires, avec le texte DÉJÀ TRADUIT dans la langue
+ * de chacun (ou l'original si c'est déjà sa langue).
+ * Hôtel : un message de client sonne chez TOUTE l'équipe ; une réponse de la réception
+ * ne notifie que le client. Le 1er message d'un client = alerte "Nouveau client" persistante.
  */
 export async function notifyRoom(message: Message, translations: Record<string, string>) {
   if (!PUSH_ENABLED) return;
   try {
-    const members = await roomMembers(message.room_id);
-    const sender = members.find((m) => m.user_id === message.sender_id);
+    const { room, participants } = await roomParticipants(message.room_id);
+    const sender = participants.find((p) => p.user_id === message.sender_id);
     const from = messageLanguage(message);
-
-    await sendToRecipients(
-      members.filter((m) => m.user_id !== message.sender_id),
-      (r) => {
-        const text =
-          (sameLanguage(from, r.my_lang)
-            ? message.original_text
-            : translations[r.my_lang] || message.translations?.[r.my_lang]) ||
-          message.original_text ||
-          "🎤 Message vocal";
-        return {
-          kind: "message",
-          title: `${sender?.display_name || "Nouveau message"}${message.kind === "audio" ? " 🎤" : ""}`,
-          body: text.slice(0, 180),
-          url: `/chat/${message.room_id}`,
-          tag: message.room_id,
-          lang: getLanguage(r.my_lang).speech,
-        };
-      },
+    const recipients = participants.filter(
+      (p) => p.user_id !== message.sender_id && (sender?.role !== "staff" || p.role === "member"),
     );
+
+    let firstGuestMessage = false;
+    if (room?.hotel_id && sender?.role === "member") {
+      const { count } = await createAdminClient()
+        .from("messages")
+        .select("id", { count: "exact", head: true })
+        .eq("room_id", message.room_id);
+      firstGuestMessage = (count ?? 0) <= 1;
+    }
+
+    await sendToRecipients(recipients, (r) => {
+      const text =
+        (sameLanguage(from, r.my_lang)
+          ? message.original_text
+          : translations[r.my_lang] || message.translations?.[r.my_lang]) ||
+        message.original_text ||
+        "🎤";
+      const isStaffRecipient = recipients.find((p) => p.user_id === r.user_id)?.role === "staff";
+      const senderName = sender?.display_name || (isStaffRecipient ? "Client" : "") || "Nouveau message";
+      return {
+        kind: firstGuestMessage ? "join" : "message",
+        title:
+          (firstGuestMessage ? "🛎️ Nouveau client — " : "") +
+          (isStaffRecipient ? `${senderName}${placeLabel(room)}` : senderName) +
+          (message.kind === "audio" ? " 🎤" : ""),
+        body: text.slice(0, 180),
+        url: `/chat/${message.room_id}`,
+        tag: message.room_id,
+        lang: getLanguage(r.my_lang).speech,
+      };
+    });
   } catch (err) {
     console.error("[push] notifyRoom", err);
   }
 }
 
-/** Un client vient d'ouvrir la conversation (lien d'invitation / QR code) → alerte la réception. */
+/** Un contact vient d'ouvrir la conversation (lien d'invitation) → alerte les autres participants. */
 export async function notifyJoin(roomId: string, joinerId: string) {
   if (!PUSH_ENABLED) return;
   try {
-    const members = await roomMembers(roomId);
-    const joiner = members.find((m) => m.user_id === joinerId);
+    const { participants } = await roomParticipants(roomId);
+    const joiner = participants.find((m) => m.user_id === joinerId);
     const lang = getLanguage(joiner?.my_lang);
     await sendToRecipients(
-      members.filter((m) => m.user_id !== joinerId),
+      participants.filter((m) => m.user_id !== joinerId),
       () => ({
         kind: "join",
         title: "🛎️ Nouvelle conversation",

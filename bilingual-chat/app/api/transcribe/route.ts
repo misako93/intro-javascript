@@ -1,11 +1,12 @@
 import { NextResponse, after, type NextRequest } from "next/server";
 import { createClient, createTokenClient } from "@/lib/supabase/server";
 import { transcribeAudio } from "@/lib/ai/transcribe";
-import { recipientLanguages, targetLanguagesFor, translateMessage } from "@/lib/messages";
+import { targetLanguagesFor, translateMessage } from "@/lib/messages";
 import { detectMessageLanguage, whisperLanguageToIso } from "@/lib/detect-language";
 import { VOICE_BUCKET } from "@/lib/config";
 import { UUID_RE } from "@/lib/utils";
 import { afterSend, getRoomBilling } from "@/lib/billing";
+import { getParticipants, recipientsOf } from "@/lib/participants";
 import { notifyRoom } from "@/lib/push";
 import type { Message } from "@/lib/types";
 
@@ -55,12 +56,9 @@ export async function POST(request: NextRequest) {
   const ext = EXTENSIONS[mime];
   if (!ext) return NextResponse.json({ error: `Format audio non supporté (${mime})` }, { status: 415 });
 
-  const { data: me } = await supabase
-    .from("room_members")
-    .select("my_lang")
-    .eq("room_id", roomId)
-    .eq("user_id", user.id)
-    .maybeSingle();
+  // Membre de la conversation ou réceptionniste de l'hôtel
+  const participants = await getParticipants(supabase, roomId);
+  const me = participants.find((p) => p.user_id === user.id);
   if (!me) return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
 
   // Paywall : un seul abonné suffit pour couvrir toute la conversation.
@@ -112,7 +110,7 @@ export async function POST(request: NextRequest) {
         const detected = detectMessageLanguage(
           text,
           me.my_lang,
-          await recipientLanguages(db, roomId, user.id),
+          recipientsOf(participants, user.id).map((p) => p.my_lang),
           whisperLanguageToIso(language),
         );
 

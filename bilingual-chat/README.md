@@ -4,7 +4,7 @@ Messagerie type WhatsApp où chacun écrit (ou parle) dans sa langue : l'interlo
 
 - 📱 **Application mobile installable** (Android + iPhone) avec notifications push — sans passer par les stores.
 - 💳 **Un seul abonnement par conversation** : si l'un des deux participants est abonné, les deux discutent en illimité.
-- 🛎️ **Pensé pour la réception d'un hôtel** : alerte sonore dès qu'un client ouvre une conversation ou écrit, même app en arrière-plan ; tableau de bord en direct.
+- 🏨 **Mode hôtel** : une affiche QR à l'accueil (+ un QR par chambre en option). Le client scanne, écrit dans sa langue **sans créer de compte**, et **toute l'équipe** de réception reçoit le message traduit sur son téléphone, avec alerte sonore.
 - 🧠 **Détection de langue** : si le client écrit déjà dans la langue du réceptionniste, le message s'affiche tel quel, sans appel à l'IA.
 
 **Stack :** Next.js 16 (App Router) · Tailwind CSS 4 · Supabase (Auth Magic Link/Google, Postgres, Realtime, Storage) · OpenAI Whisper · Claude / GPT-4o-mini · Stripe · Web Push
@@ -103,6 +103,23 @@ npm run dev                  # → http://localhost:3000
 
 **Choix du traducteur** — `TRANSLATION_PROVIDER=anthropic|openai`, `ANTHROPIC_MODEL` (défaut `claude-haiku-5-5`), `OPENAI_TRANSLATION_MODEL` (défaut `gpt-4o-mini`).
 
+### 6. Activer le mode hôtel
+
+1. **Supabase → Authentication → Sign In / Providers → « Allow anonymous sign-ins » : ON.** C'est ce qui permet au client de l'hôtel d'écrire sans e-mail ni compte. (Recommandé ensuite : activer le CAPTCHA Turnstile dans Authentication → Attack Protection pour limiter les abus.)
+2. Ré-exécutez `supabase/schema.sql` (sans risque).
+3. Dans l'app : tableau de bord → **« Vous êtes un hôtel ? »** → nom de l'hôtel + langue de la réception.
+4. Sur la page **Mon hôtel** :
+   - **Imprimer l'affiche** de l'accueil (A4, phrase d'accroche en 8 langues) ;
+   - ajouter des chambres (`101-120, 201-220, Suite Royale`) puis **imprimer la planche de QR** à découper ;
+   - **ajouter des réceptionnistes** en leur envoyant le lien d'équipe (WhatsApp / copier).
+5. Chaque réceptionniste installe l'app sur son téléphone et active les notifications.
+
+**Parcours du client :** il scanne → la page s'ouvre **dans la langue de son téléphone** (arabe, anglais, chinois, russe, ourdou, hindi, indonésien… 13 langues d'interface, 26 langues de traduction) → il écrit ou envoie un vocal → la réception reçoit « 🛎️ Nouveau client — Ahmed · Ch. 204 » traduit en français. S'il rescanne, il retrouve sa conversation. Il n'a jamais rien à payer et ne voit jamais d'écran d'abonnement.
+
+**Équipe :** tous les réceptionnistes voient toutes les conversations de l'hôtel et peuvent répondre. Un message de client sonne chez toute l'équipe ; une réponse de la réception n'est envoyée qu'au client. Le responsable peut retirer un membre : il perd l'accès immédiatement.
+
+**Abonnement :** pour un hôtel, l'abonnement du responsable couvre toute l'équipe et tous les clients ; l'essai gratuit est de `FREE_MESSAGES_PER_HOTEL` messages (200 par défaut) pour l'ensemble de l'hôtel.
+
 ---
 
 ## 📲 Et les App Store / Play Store ?
@@ -131,7 +148,10 @@ bilingual-chat/
 │   ├── dashboard/page.tsx       # Liste des conversations
 │   ├── dashboard/actions.ts     # Création d'un salon (Server Action)
 │   ├── invite/[token]/page.tsx  # Lien d'invitation → inscription 1 clic → salon
-│   ├── chat/[id]/page.tsx       # Écran de conversation
+│   ├── chat/[id]/page.tsx       # Écran de conversation (vue classique, réception ou client d'hôtel)
+│   ├── q/[token]/page.tsx       # Page ouverte par le QR code (accueil ou chambre)
+│   ├── hotel/                   # Espace hôtel : QR, chambres, équipe + affiche et planche à imprimer
+│   ├── staff/[token]/page.tsx   # Lien pour rejoindre l'équipe de réception
 │   └── api/
 │       ├── translate/route.ts   # Envoi d'un message texte + traduction (ou retraduction)
 │       ├── transcribe/route.ts  # Upload du vocal + transcription Whisper + traduction
@@ -150,6 +170,8 @@ bilingual-chat/
 │   ├── NotificationsBanner.tsx  # Activation des notifications
 │   ├── PwaSetup.tsx             # Enregistre le service worker + débloque le son
 │   ├── DashboardLive.tsx        # Tableau de bord en direct (réception)
+│   ├── GuestStart.tsx           # Accueil du client d'hôtel (langue, prénom, sans compte)
+│   ├── I18n.tsx                 # Interface traduite pour les clients
 │   ├── NewRoomForm.tsx · LanguageSelect.tsx · LoginForm.tsx
 └── lib/
     ├── ai/transcribe.ts         # Appel Whisper
@@ -160,6 +182,8 @@ bilingual-chat/
     ├── detect-language.ts       # Détection de la langue réelle d'un message
     ├── sound.ts                 # Carillon d'alerte dans l'app
     ├── languages.ts             # 26 langues dont 8 dialectes arabes
+    ├── i18n.ts                  # Textes de l'interface client en 13 langues
+    ├── participants.ts · hotel.ts · qr.ts
     └── supabase/{client,server,proxy,admin}.ts
 public/
     ├── sw.js · offline.html     # Service worker : notifications + page hors-ligne

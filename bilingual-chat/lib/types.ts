@@ -1,5 +1,7 @@
 export type Room = {
   id: string;
+  hotel_id?: string | null;
+  room_label?: string | null;
   created_by: string;
   partner_name: string;
   invite_token: string;
@@ -13,6 +15,16 @@ export type Member = {
   my_lang: string;
   target_lang: string;
   joined_at: string;
+};
+
+/** Membre d'une conversation, ou réceptionniste de l'hôtel ("staff"). */
+export type Participant = Member & { role: "member" | "staff" };
+
+export type HotelContext = {
+  hotel_id: string;
+  hotel_name: string;
+  room_label: string | null;
+  is_staff: boolean;
 };
 
 export type Message = {

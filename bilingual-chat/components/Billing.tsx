@@ -17,8 +17,8 @@ export function TrialBanner({ billing, roomId }: { billing: RoomBilling; roomId:
     <div className="flex items-center gap-3 border-b border-emerald-100 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
       <span>🎁</span>
       <p className="flex-1">
-        <strong>{left}</strong> message{left > 1 ? "s" : ""} gratuit{left > 1 ? "s" : ""} restant{left > 1 ? "s" : ""}. Un seul
-        abonnement suffit pour vous deux.
+        <strong>{left}</strong> message{left > 1 ? "s" : ""} gratuit{left > 1 ? "s" : ""} restant{left > 1 ? "s" : ""}
+        {billing.hotel ? " pour l’hôtel. Vos clients n’ont jamais rien à payer." : ". Un seul abonnement suffit pour vous deux."}
       </p>
       <SubscribeForm
         returnTo={`/chat/${roomId}`}
@@ -44,10 +44,17 @@ export function Paywall({
   return (
     <div className="border-t border-slate-200 bg-white px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 text-center">
       <p className="font-semibold">Vos {billing.limit} messages gratuits sont utilisés 🎉</p>
-      <p className="mx-auto mt-1 max-w-md text-sm text-slate-600">
-        Il suffit qu’<strong>une seule personne</strong> s’abonne pour que vous discutiez <strong>tous les deux</strong> en
-        illimité : vous ou {partnerName}.
-      </p>
+      {billing.hotel ? (
+        <p className="mx-auto mt-1 max-w-md text-sm text-slate-600">
+          Abonnez l’hôtel pour continuer à recevoir les messages de vos clients. <strong>Toute l’équipe</strong> est
+          couverte, et vos clients n’ont <strong>jamais rien à payer</strong>.
+        </p>
+      ) : (
+        <p className="mx-auto mt-1 max-w-md text-sm text-slate-600">
+          Il suffit qu’<strong>une seule personne</strong> s’abonne pour que vous discutiez <strong>tous les deux</strong> en
+          illimité : vous ou {partnerName}.
+        </p>
+      )}
       <SubscribeForm
         returnTo={`/chat/${roomId}`}
         label={`Passer en illimité · ${priceLabel}`}

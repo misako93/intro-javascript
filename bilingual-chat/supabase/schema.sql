@@ -52,6 +52,14 @@ as $$
   );
 $$;
 
+-- Les clients d'hôtel se connectent en "invité" (session anonyme Supabase, sans e-mail).
+create or replace function public.is_anonymous()
+returns boolean
+language sql stable
+as $$
+  select coalesce((auth.jwt() ->> 'is_anonymous')::boolean, false);
+$$;
+
 -- ─── Row Level Security ─────────────────────────────────────────────
 
 alter table public.rooms        enable row level security;
@@ -100,6 +108,7 @@ as $$
 declare v_room uuid;
 begin
   if auth.uid() is null then raise exception 'not_authenticated'; end if;
+  if public.is_anonymous() then raise exception 'anonymous_not_allowed'; end if;
 
   insert into rooms (created_by, partner_name)
   values (auth.uid(), left(coalesce(trim(p_partner_name), ''), 60))
@@ -247,21 +256,34 @@ as $$
 $$;
 revoke execute on function public.has_active_subscription(uuid) from public, anon, authenticated;
 
--- État de facturation d'un salon : premium si AU MOINS UN membre est abonné.
+-- État de facturation d'un salon : premium si AU MOINS UN participant est abonné
+-- (un membre de la conversation, ou un membre de l'équipe de l'hôtel pour une conversation d'hôtel).
+-- Pour un hôtel, le quota gratuit se compte sur l'ensemble de l'hôtel, pas par client.
+drop function if exists public.room_billing(uuid);
 create or replace function public.room_billing(p_room_id uuid)
-returns table (premium boolean, sponsor_name text, message_count int)
+returns table (premium boolean, sponsor_name text, message_count int, is_hotel boolean)
 language plpgsql stable security definer set search_path = public
 as $$
+declare v_hotel uuid;
 begin
   if not public.is_room_member(p_room_id) then raise exception 'forbidden'; end if;
+  select hotel_id into v_hotel from rooms where id = p_room_id;
 
   return query
+  with payers as (
+    select m.user_id, m.display_name from room_members m where m.room_id = p_room_id
+    union all
+    select s.user_id, s.display_name from hotel_staff s where v_hotel is not null and s.hotel_id = v_hotel
+  )
   select
-    exists (select 1 from room_members m where m.room_id = p_room_id and public.has_active_subscription(m.user_id)),
-    (select m.display_name from room_members m
-       where m.room_id = p_room_id and public.has_active_subscription(m.user_id)
-       order by (m.user_id = auth.uid()) desc limit 1),
-    (select count(*)::int from messages where room_id = p_room_id);
+    exists (select 1 from payers p where public.has_active_subscription(p.user_id)),
+    (select p.display_name from payers p where public.has_active_subscription(p.user_id)
+       order by (p.user_id = auth.uid()) desc limit 1),
+    case when v_hotel is null
+      then (select count(*)::int from messages where room_id = p_room_id)
+      else (select count(*)::int from messages ms join rooms r on r.id = ms.room_id where r.hotel_id = v_hotel)
+    end,
+    v_hotel is not null;
 end $$;
 revoke execute on function public.room_billing(uuid) from public, anon;
 grant  execute on function public.room_billing(uuid) to authenticated;
@@ -291,3 +313,246 @@ create policy "push: manage own" on public.push_subscriptions
 --  (peut différer de la langue du profil ; sert à éviter les traductions inutiles)
 -- ═══════════════════════════════════════════════════════════════════
 alter table public.messages add column if not exists detected_lang text;
+
+-- ═══════════════════════════════════════════════════════════════════
+--  MODE HÔTEL : QR code à l'accueil / dans les chambres
+--  Le client scanne, écrit dans sa langue (sans créer de compte) ;
+--  TOUTE l'équipe de réception reçoit le message traduit.
+-- ═══════════════════════════════════════════════════════════════════
+
+create table if not exists public.hotels (
+  id                  uuid primary key default gen_random_uuid(),
+  name                text not null,
+  owner_id            uuid not null references auth.users(id) on delete cascade,
+  default_lang        text not null default 'fr',   -- langue de la réception
+  desk_token          text not null unique default replace(gen_random_uuid()::text, '-', ''),  -- QR de l'accueil
+  staff_invite_token  text not null unique default replace(gen_random_uuid()::text, '-', ''),  -- lien pour ajouter un réceptionniste
+  created_at          timestamptz not null default now()
+);
+
+create table if not exists public.hotel_staff (
+  hotel_id      uuid not null references public.hotels(id) on delete cascade,
+  user_id       uuid not null references auth.users(id) on delete cascade,
+  role          text not null default 'staff' check (role in ('owner', 'staff')),
+  display_name  text not null default '',
+  my_lang       text not null default 'fr',
+  joined_at     timestamptz not null default now(),
+  primary key (hotel_id, user_id)
+);
+create index if not exists hotel_staff_user_idx on public.hotel_staff(user_id);
+
+create table if not exists public.hotel_rooms (
+  id          uuid primary key default gen_random_uuid(),
+  hotel_id    uuid not null references public.hotels(id) on delete cascade,
+  label       text not null,                         -- "204", "Suite Royale"…
+  token       text not null unique default replace(gen_random_uuid()::text, '-', ''),
+  created_at  timestamptz not null default now(),
+  unique (hotel_id, label)
+);
+
+alter table public.rooms add column if not exists hotel_id uuid references public.hotels(id) on delete cascade;
+alter table public.rooms add column if not exists room_label text;
+create index if not exists rooms_hotel_idx on public.rooms(hotel_id);
+
+create or replace function public.is_hotel_staff(p_hotel_id uuid)
+returns boolean language sql stable security definer set search_path = public
+as $$ select exists (select 1 from hotel_staff where hotel_id = p_hotel_id and user_id = auth.uid()); $$;
+
+create or replace function public.is_hotel_owner(p_hotel_id uuid)
+returns boolean language sql stable security definer set search_path = public
+as $$ select exists (select 1 from hotel_staff where hotel_id = p_hotel_id and user_id = auth.uid() and role = 'owner'); $$;
+
+-- Accès à une conversation : ses membres + toute l'équipe de l'hôtel concerné.
+-- (Redéfinition : toutes les règles RLS existantes en profitent automatiquement.)
+create or replace function public.is_room_member(p_room_id uuid)
+returns boolean
+language sql stable security definer set search_path = public
+as $$
+  select exists (select 1 from room_members where room_id = p_room_id and user_id = auth.uid())
+      or exists (
+        select 1 from rooms r join hotel_staff s on s.hotel_id = r.hotel_id
+        where r.id = p_room_id and s.user_id = auth.uid()
+      );
+$$;
+
+alter table public.hotels      enable row level security;
+alter table public.hotel_staff enable row level security;
+alter table public.hotel_rooms enable row level security;
+
+drop policy if exists "hotels: staff can read" on public.hotels;
+create policy "hotels: staff can read" on public.hotels
+  for select to authenticated using (public.is_hotel_staff(id));
+
+drop policy if exists "hotels: owner can update" on public.hotels;
+create policy "hotels: owner can update" on public.hotels
+  for update to authenticated using (public.is_hotel_owner(id)) with check (public.is_hotel_owner(id));
+
+drop policy if exists "hotel_staff: team can read" on public.hotel_staff;
+create policy "hotel_staff: team can read" on public.hotel_staff
+  for select to authenticated using (public.is_hotel_staff(hotel_id));
+
+drop policy if exists "hotel_staff: update own profile" on public.hotel_staff;
+create policy "hotel_staff: update own profile" on public.hotel_staff
+  for update to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+drop policy if exists "hotel_staff: owner removes staff" on public.hotel_staff;
+create policy "hotel_staff: owner removes staff" on public.hotel_staff
+  for delete to authenticated using (public.is_hotel_owner(hotel_id) and user_id <> auth.uid());
+
+-- On ne peut modifier QUE son prénom et sa langue (pas son rôle, ni l'hôtel).
+revoke update on public.hotel_staff from authenticated, anon;
+grant  update (display_name, my_lang) on public.hotel_staff to authenticated;
+revoke update (name, owner_id, desk_token, staff_invite_token) on public.hotels from authenticated, anon;
+revoke update on public.hotels from authenticated, anon;
+grant  update (name, default_lang) on public.hotels to authenticated;
+
+drop policy if exists "hotel_rooms: staff can read" on public.hotel_rooms;
+create policy "hotel_rooms: staff can read" on public.hotel_rooms
+  for select to authenticated using (public.is_hotel_staff(hotel_id));
+
+drop policy if exists "hotel_rooms: owner manages" on public.hotel_rooms;
+create policy "hotel_rooms: owner manages" on public.hotel_rooms
+  for insert to authenticated with check (public.is_hotel_owner(hotel_id));
+
+drop policy if exists "hotel_rooms: owner deletes" on public.hotel_rooms;
+create policy "hotel_rooms: owner deletes" on public.hotel_rooms
+  for delete to authenticated using (public.is_hotel_owner(hotel_id));
+
+-- Créer son hôtel (le créateur devient "owner" de l'équipe).
+create or replace function public.create_hotel(p_name text, p_lang text, p_display_name text)
+returns uuid
+language plpgsql security definer set search_path = public
+as $$
+declare v_hotel uuid;
+begin
+  if auth.uid() is null then raise exception 'not_authenticated'; end if;
+  if public.is_anonymous() then raise exception 'anonymous_not_allowed'; end if;
+  insert into hotels (name, owner_id, default_lang)
+  values (left(trim(p_name), 80), auth.uid(), p_lang)
+  returning id into v_hotel;
+  insert into hotel_staff (hotel_id, user_id, role, display_name, my_lang)
+  values (v_hotel, auth.uid(), 'owner', left(coalesce(p_display_name, ''), 60), p_lang);
+  return v_hotel;
+end $$;
+
+-- Rejoindre l'équipe d'un hôtel avec le lien d'invitation "personnel".
+create or replace function public.join_hotel_staff(p_token text, p_display_name text)
+returns uuid
+language plpgsql security definer set search_path = public
+as $$
+declare v_hotel hotels;
+begin
+  if auth.uid() is null then raise exception 'not_authenticated'; end if;
+  if public.is_anonymous() then raise exception 'anonymous_not_allowed'; end if;
+  select * into v_hotel from hotels where staff_invite_token = p_token;
+  if not found then raise exception 'invalid_invite'; end if;
+  insert into hotel_staff (hotel_id, user_id, role, display_name, my_lang)
+  values (v_hotel.id, auth.uid(), 'staff', left(coalesce(p_display_name, ''), 60), v_hotel.default_lang)
+  on conflict (hotel_id, user_id) do nothing;
+  return v_hotel.id;
+end $$;
+
+-- Infos publiques derrière un QR code (accueil ou chambre), affichées AVANT toute connexion.
+create or replace function public.get_hotel_entry(p_token text)
+returns table (hotel_name text, room_label text, hotel_lang text, is_staff boolean)
+language sql stable security definer set search_path = public
+as $$
+  select h.name, null::text, h.default_lang, public.is_hotel_staff(h.id) from hotels h where h.desk_token = p_token
+  union all
+  select h.name, r.label, h.default_lang, public.is_hotel_staff(h.id)
+  from hotel_rooms r join hotels h on h.id = r.hotel_id where r.token = p_token
+  limit 1;
+$$;
+
+-- Infos publiques d'un lien d'invitation "personnel".
+create or replace function public.get_staff_invite(p_token text)
+returns table (hotel_name text)
+language sql stable security definer set search_path = public
+as $$ select name from hotels where staff_invite_token = p_token; $$;
+
+-- Le client scanne le QR → ouvre (ou retrouve) SA conversation avec la réception.
+create or replace function public.start_hotel_conversation(p_token text, p_name text, p_lang text)
+returns uuid
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_hotel hotels;
+  v_label text;
+  v_room  uuid;
+begin
+  if auth.uid() is null then raise exception 'not_authenticated'; end if;
+
+  select * into v_hotel from hotels where desk_token = p_token;
+  if not found then
+    -- Pas le QR de l'accueil : peut-être celui d'une chambre.
+    select r.label into v_label from hotel_rooms r where r.token = p_token;
+    select h.* into v_hotel from hotels h join hotel_rooms r on r.hotel_id = h.id where r.token = p_token;
+    if not found then raise exception 'invalid_qr'; end if;
+  end if;
+
+  if public.is_hotel_staff(v_hotel.id) then raise exception 'is_staff'; end if;
+
+  -- Le même client qui rescanne retrouve sa conversation.
+  select id into v_room from rooms
+  where hotel_id = v_hotel.id and created_by = auth.uid() and room_label is not distinct from v_label
+  order by created_at desc limit 1;
+
+  if v_room is null then
+    insert into rooms (created_by, partner_name, hotel_id, room_label)
+    values (auth.uid(), v_hotel.name, v_hotel.id, v_label)
+    returning id into v_room;
+    insert into room_members (room_id, user_id, display_name, my_lang, target_lang)
+    values (v_room, auth.uid(), left(coalesce(nullif(trim(p_name), ''), ''), 60), left(p_lang, 10), v_hotel.default_lang);
+  else
+    update room_members set my_lang = left(p_lang, 10),
+      display_name = coalesce(nullif(left(trim(p_name), 60), ''), display_name)
+    where room_id = v_room and user_id = auth.uid();
+  end if;
+
+  return v_room;
+end $$;
+
+-- Participants d'une conversation : membres + équipe de l'hôtel.
+-- Pour un réceptionniste, la "langue de traduction" est automatiquement celle du client.
+create or replace function public.room_participants(p_room_id uuid)
+returns table (user_id uuid, display_name text, my_lang text, target_lang text, role text)
+language plpgsql stable security definer set search_path = public
+as $$
+begin
+  if not public.is_room_member(p_room_id) then raise exception 'forbidden'; end if;
+  return query
+  select m.user_id, m.display_name, m.my_lang, m.target_lang, 'member'::text
+  from room_members m where m.room_id = p_room_id
+  union all
+  select s.user_id, s.display_name, s.my_lang,
+         coalesce((select g.my_lang from room_members g where g.room_id = p_room_id and g.user_id = r.created_by), s.my_lang),
+         'staff'::text
+  from rooms r join hotel_staff s on s.hotel_id = r.hotel_id
+  where r.id = p_room_id
+    and not exists (select 1 from room_members x where x.room_id = p_room_id and x.user_id = s.user_id);
+end $$;
+
+-- Contexte "hôtel" d'une conversation (nom de l'hôtel, chambre, suis-je de l'équipe ?).
+create or replace function public.room_hotel(p_room_id uuid)
+returns table (hotel_id uuid, hotel_name text, room_label text, is_staff boolean)
+language plpgsql stable security definer set search_path = public
+as $$
+begin
+  if not public.is_room_member(p_room_id) then raise exception 'forbidden'; end if;
+  return query
+  select h.id, h.name, r.room_label, public.is_hotel_staff(h.id)
+  from rooms r join hotels h on h.id = r.hotel_id where r.id = p_room_id;
+end $$;
+
+revoke execute on function public.create_hotel(text, text, text)               from public, anon;
+revoke execute on function public.join_hotel_staff(text, text)                 from public, anon;
+revoke execute on function public.start_hotel_conversation(text, text, text)   from public, anon;
+revoke execute on function public.room_participants(uuid)                      from public, anon;
+revoke execute on function public.room_hotel(uuid)                             from public, anon;
+grant  execute on function public.create_hotel(text, text, text)               to authenticated;
+grant  execute on function public.join_hotel_staff(text, text)                 to authenticated;
+grant  execute on function public.start_hotel_conversation(text, text, text)   to authenticated;
+grant  execute on function public.room_participants(uuid)                      to authenticated;
+grant  execute on function public.room_hotel(uuid)                             to authenticated;
+grant  execute on function public.get_hotel_entry(text)                        to anon, authenticated;
+grant  execute on function public.get_staff_invite(text)                       to anon, authenticated;

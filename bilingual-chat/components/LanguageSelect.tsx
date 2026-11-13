@@ -10,9 +10,11 @@ type Props = {
   onChange?: (code: string) => void;
   className?: string;
   "aria-label"?: string;
+  /** Afficher chaque langue dans sa propre langue (pour les clients étrangers) */
+  native?: boolean;
 };
 
-export default function LanguageSelect({ onChange, className = "", ...props }: Props) {
+export default function LanguageSelect({ onChange, className = "", native = false, ...props }: Props) {
   return (
     <select
       {...props}
@@ -21,7 +23,7 @@ export default function LanguageSelect({ onChange, className = "", ...props }: P
     >
       {LANGUAGES.map((l) => (
         <option key={l.code} value={l.code}>
-          {l.flag} {l.label}
+          {l.flag} {native ? l.native : l.label}
         </option>
       ))}
     </select>

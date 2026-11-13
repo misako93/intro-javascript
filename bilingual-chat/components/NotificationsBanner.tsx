@@ -3,11 +3,13 @@
 import { useEffect, useState } from "react";
 import { enablePush, isIOS, isStandalone, pushSupported, syncPushSubscription } from "@/lib/pwa";
 import { VAPID_PUBLIC_KEY } from "@/lib/config";
+import { useT } from "@/components/I18n";
 
 const DISMISS_KEY = "notif-banner-dismissed";
 
 /** Propose d'activer les notifications (indispensable pour une messagerie). */
 export default function NotificationsBanner({ partnerName }: { partnerName: string }) {
+  const t = useT();
   const [state, setState] = useState<"hidden" | "ask" | "ios-install" | "busy" | "denied">("hidden");
 
   useEffect(() => {
@@ -42,10 +44,10 @@ export default function NotificationsBanner({ partnerName }: { partnerName: stri
       <span className="text-lg">🔔</span>
       <p className="flex-1">
         {state === "ios-install"
-          ? "Pour être prévenu·e des messages sur iPhone : Partager → « Sur l’écran d’accueil », puis ouvrez l’app depuis l’icône."
+          ? t("notif_ios")
           : state === "denied"
-            ? "Notifications bloquées. Autorisez-les dans les réglages du navigateur."
-            : `Soyez prévenu·e (avec son) dès que ${partnerName} vous écrit, même app fermée.`}
+            ? t("notif_denied")
+            : t("notif_ask", { name: partnerName })}
       </p>
       {(state === "ask" || state === "busy") && (
         <button
@@ -53,7 +55,7 @@ export default function NotificationsBanner({ partnerName }: { partnerName: stri
           disabled={state === "busy"}
           className="shrink-0 rounded-full bg-amber-500 px-3 py-1.5 font-semibold text-white disabled:opacity-60"
         >
-          Activer
+          {t("notif_enable")}
         </button>
       )}
       <button onClick={dismiss} className="shrink-0 p-1 text-amber-700" aria-label="Masquer">

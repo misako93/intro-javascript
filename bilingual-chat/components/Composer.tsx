@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { MAX_RECORDING_SECONDS } from "@/lib/config";
+import { useT } from "@/components/I18n";
 
 type Props = {
   onSendText: (text: string) => void;
@@ -19,7 +20,8 @@ function formatDuration(s: number) {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
-export default function Composer({ onSendText, onSendAudio, placeholder = "Votre message…" }: Props) {
+export default function Composer({ onSendText, onSendAudio, placeholder }: Props) {
+  const t = useT();
   const [text, setText] = useState("");
   const [recording, setRecording] = useState(false);
   const [seconds, setSeconds] = useState(0);
@@ -66,7 +68,7 @@ export default function Composer({ onSendText, onSendAudio, placeholder = "Votre
   async function startRecording() {
     setMicError("");
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
-      setMicError("Votre navigateur ne permet pas d’enregistrer la voix.");
+      setMicError(t("mic_unsupported"));
       return;
     }
     let stream: MediaStream;
@@ -75,7 +77,7 @@ export default function Composer({ onSendText, onSendAudio, placeholder = "Votre
         audio: { echoCancellation: true, noiseSuppression: true },
       });
     } catch {
-      setMicError("Autorisez l’accès au micro dans votre navigateur pour envoyer un vocal.");
+      setMicError(t("mic_denied"));
       return;
     }
 
@@ -120,19 +122,19 @@ export default function Composer({ onSendText, onSendAudio, placeholder = "Votre
           <button
             onClick={() => stopRecording(true)}
             className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-slate-100 text-xl transition hover:bg-slate-200"
-            aria-label="Annuler l’enregistrement"
+            aria-label={t("cancel")}
           >
             🗑️
           </button>
           <div className="flex flex-1 items-center gap-2 rounded-full bg-red-50 px-4 py-3 text-red-700">
             <span className="h-3 w-3 animate-pulse rounded-full bg-red-600" />
-            <span className="font-medium">Enregistrement</span>
+            <span className="font-medium">{t("recording")}</span>
             <span className="ml-auto tabular-nums">{formatDuration(seconds)}</span>
           </div>
           <button
             onClick={() => stopRecording(false)}
             className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-emerald-600 text-white shadow transition hover:bg-emerald-700"
-            aria-label="Envoyer le vocal"
+            aria-label={t("send")}
           >
             <SendIcon />
           </button>
@@ -151,7 +153,7 @@ export default function Composer({ onSendText, onSendAudio, placeholder = "Votre
                 submitText();
               }
             }}
-            placeholder={placeholder}
+            placeholder={placeholder ?? t("placeholder", { lang: "" })}
             dir="auto"
             maxLength={4000}
             className="max-h-40 min-h-12 flex-1 resize-none rounded-3xl border border-slate-300 bg-slate-50 px-4 py-3 text-base outline-none focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-100"
@@ -160,7 +162,7 @@ export default function Composer({ onSendText, onSendAudio, placeholder = "Votre
             <button
               onClick={submitText}
               className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-emerald-600 text-white shadow transition hover:bg-emerald-700"
-              aria-label="Envoyer"
+              aria-label={t("send")}
             >
               <SendIcon />
             </button>
@@ -168,8 +170,8 @@ export default function Composer({ onSendText, onSendAudio, placeholder = "Votre
             <button
               onClick={startRecording}
               className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-emerald-600 text-white shadow transition hover:bg-emerald-700"
-              aria-label="Enregistrer un message vocal"
-              title="Appuyez pour parler"
+              aria-label={t("record")}
+              title={t("record")}
             >
               <MicIcon />
             </button>

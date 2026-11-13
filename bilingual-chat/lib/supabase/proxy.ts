@@ -1,7 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-const PROTECTED_PREFIXES = ["/dashboard", "/chat"];
+const PROTECTED_PREFIXES = ["/dashboard", "/chat", "/hotel"];
 
 /** Rafraîchit la session à chaque requête et protège les pages privées. */
 export async function updateSession(request: NextRequest) {
