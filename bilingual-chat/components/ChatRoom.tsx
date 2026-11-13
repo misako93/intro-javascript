@@ -119,11 +119,13 @@ export default function ChatRoom({ room, hotel, initialMembers, initialMessages,
   // ── Temps réel ───────────────────────────────────────────────────
   useEffect(() => {
     let channel: ReturnType<typeof supabase.channel> | null = null;
+    let cancelled = false;
     let firstSubscribe = true;
 
     (async () => {
       const { data } = await supabase.auth.getSession();
       if (data.session) await supabase.realtime.setAuth(data.session.access_token);
+      if (cancelled) return;
 
       channel = supabase
         .channel(`room:${room.id}`)
@@ -175,6 +177,7 @@ export default function ChatRoom({ room, hotel, initialMembers, initialMessages,
 
     return () => {
       document.removeEventListener("visibilitychange", onVisible);
+      cancelled = true;
       if (channel) supabase.removeChannel(channel);
     };
   }, [supabase, room.id, userId, mode, upsertMessage, upsertMember, resync]);

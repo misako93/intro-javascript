@@ -21,10 +21,12 @@ export default function DashboardLive({ userId }: { userId: string }) {
       timer.current = setTimeout(() => router.refresh(), 400);
     };
     let channel: ReturnType<typeof supabase.channel> | null = null;
+    let cancelled = false;
 
     (async () => {
       const { data } = await supabase.auth.getSession();
       if (data.session) await supabase.realtime.setAuth(data.session.access_token);
+      if (cancelled) return;
       channel = supabase
         .channel(`dashboard:${userId}`)
         .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, (payload) => {
@@ -43,6 +45,7 @@ export default function DashboardLive({ userId }: { userId: string }) {
     return () => {
       document.removeEventListener("visibilitychange", onVisible);
       if (timer.current) clearTimeout(timer.current);
+      cancelled = true;
       if (channel) supabase.removeChannel(channel);
     };
   }, [router, userId]);
