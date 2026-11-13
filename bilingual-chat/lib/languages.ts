@@ -81,3 +81,50 @@ export function fromIso(iso: string | null | undefined): string | null {
   const code = iso.toLowerCase();
   return BY_CODE.has(code) ? code : null;
 }
+
+/** Pays arabophones → dialecte proposé par défaut. */
+const ARABIC_BY_COUNTRY: Record<string, string> = {
+  SA: "ar-SA",
+  EG: "ar-EG", SD: "ar-EG",
+  AE: "ar-AE", QA: "ar-AE", KW: "ar-AE", BH: "ar-AE", OM: "ar-AE",
+  MA: "ar-MA", DZ: "ar-DZ", TN: "ar-TN", LY: "ar-TN",
+  LB: "ar-LB", SY: "ar-LB", JO: "ar-LB", PS: "ar-LB", IQ: "ar",
+};
+
+/** Codes de langue alternatifs envoyés par certains téléphones. */
+const ALIASES: Record<string, string> = { fil: "tl", in: "id", iw: "he", nb: "no", zsm: "ms", pes: "fa", prs: "fa" };
+
+/** Une langue du téléphone ("ar-QA", "fil-PH", "pt-BR"…) → langue de l'application, si prise en charge. */
+export function matchLanguage(tag: string): string | null {
+  const [rawBase, ...rest] = tag.trim().replace("_", "-").split("-");
+  const base = ALIASES[rawBase.toLowerCase()] ?? rawBase.toLowerCase();
+  const region = rest.find((p) => /^[A-Za-z]{2}$/.test(p))?.toUpperCase();
+  if (base === "ar") return (region && ARABIC_BY_COUNTRY[region]) || "ar";
+  const exact = LANGUAGES.find((l) => l.code.toLowerCase() === `${base}-${region ?? ""}`.toLowerCase());
+  if (exact) return exact.code;
+  return BY_CODE.has(base) ? base : null;
+}
+
+/** Première langue du téléphone prise en charge (navigator.languages ou en-tête Accept-Language). */
+export function pickLanguage(tags: readonly string[], fallback = "en"): string {
+  for (const tag of tags) {
+    const match = matchLanguage(tag);
+    if (match) return match;
+  }
+  return fallback;
+}
+
+/** "fr-FR,fr;q=0.9,en;q=0.8" → ["fr-FR", "fr", "en"], triés par préférence. */
+export function parseAcceptLanguage(header: string | null | undefined): string[] {
+  if (!header) return [];
+  return header
+    .split(",")
+    .map((part) => {
+      const [tag, ...params] = part.trim().split(";");
+      const q = Number(params.find((p) => p.trim().startsWith("q="))?.split("=")[1] ?? 1);
+      return { tag: tag.trim(), q: Number.isFinite(q) ? q : 0 };
+    })
+    .filter((x) => x.tag && x.tag !== "*")
+    .sort((a, b) => b.q - a.q)
+    .map((x) => x.tag);
+}

@@ -1,5 +1,8 @@
 import Link from "next/link";
+import { headers } from "next/headers";
 import GuestStart from "@/components/GuestStart";
+import { parseAcceptLanguage, pickLanguage } from "@/lib/languages";
+import { makeT, RTL_LOCALES, uiLocale } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase/server";
 import { APP_NAME } from "@/lib/config";
 
@@ -12,14 +15,17 @@ export default async function HotelQrPage({ params }: { params: Promise<{ token:
   const { data } = await supabase.rpc("get_hotel_entry", { p_token: token });
   const entry = ((data ?? []) as Entry[])[0];
 
+  // Langue du téléphone, connue dès la première requête (en-tête Accept-Language) :
+  // la page s'affiche directement dans la bonne langue, sans passer par l'anglais.
+  const phoneLang = pickLanguage(parseAcceptLanguage((await headers()).get("accept-language")));
+  const locale = uiLocale(phoneLang);
+
   if (!entry) {
     return (
-      <main className="grid min-h-dvh place-items-center p-6 text-center">
+      <main dir={RTL_LOCALES.has(locale) ? "rtl" : "ltr"} lang={locale} className="grid min-h-dvh place-items-center p-6 text-center">
         <div>
           <p className="text-5xl">🔗</p>
-          <p className="mt-4 text-slate-600">This QR code is no longer valid. Please ask the front desk.</p>
-          <p className="mt-1 text-slate-600" dir="rtl">رمز QR هذا لم يعد صالحًا. يُرجى التوجّه إلى الاستقبال.</p>
-          <p className="mt-1 text-slate-600">Ce QR code n’est plus valide. Merci de vous adresser à la réception.</p>
+          <p className="mt-4 text-slate-600">{makeT(locale)("invalid_qr")}</p>
         </div>
       </main>
     );
@@ -45,5 +51,5 @@ export default async function HotelQrPage({ params }: { params: Promise<{ token:
     );
   }
 
-  return <GuestStart token={token} hotelName={entry.hotel_name} roomLabel={entry.room_label} hotelLang={entry.hotel_lang} appName={APP_NAME} />;
+  return <GuestStart token={token} hotelName={entry.hotel_name} roomLabel={entry.room_label} initialLang={phoneLang} appName={APP_NAME} />;
 }

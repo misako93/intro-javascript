@@ -1,5 +1,5 @@
 /* Service worker : notifications push + page hors-ligne. */
-const OFFLINE_CACHE = "offline-v1";
+const OFFLINE_CACHE = "offline-v2"; // à incrémenter quand offline.html change
 const OFFLINE_URL = "/offline.html";
 
 self.addEventListener("install", (event) => {
@@ -8,7 +8,13 @@ self.addEventListener("install", (event) => {
 });
 
 self.addEventListener("activate", (event) => {
-  event.waitUntil(self.clients.claim());
+  event.waitUntil(
+    (async () => {
+      // Supprime les anciennes versions de la page hors-ligne
+      for (const key of await caches.keys()) if (key !== OFFLINE_CACHE) await caches.delete(key);
+      await self.clients.claim();
+    })(),
+  );
 });
 
 // Navigation sans réseau → page "Vous êtes hors ligne" au lieu de l'écran d'erreur du navigateur.

@@ -1,35 +1,27 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import LanguageSelect from "@/components/LanguageSelect";
-import { LANGUAGES, baseOf } from "@/lib/languages";
 import { makeT, RTL_LOCALES, uiLocale } from "@/lib/i18n";
 
-/** Langue du téléphone du client → langue proposée par défaut. */
-function guessLanguage(fallback: string) {
-  if (typeof navigator === "undefined") return fallback;
-  for (const tag of navigator.languages ?? [navigator.language]) {
-    const exact = LANGUAGES.find((l) => l.code.toLowerCase() === tag.toLowerCase());
-    if (exact) return exact.code;
-    const base = LANGUAGES.find((l) => l.code === baseOf(tag.toLowerCase()));
-    if (base) return base.code;
-  }
-  return fallback;
-}
-
-type Props = { token: string; hotelName: string; roomLabel: string | null; hotelLang?: string; appName: string };
+type Props = {
+  token: string;
+  hotelName: string;
+  roomLabel: string | null;
+  /** Langue du téléphone du client (détectée par le serveur) */
+  initialLang: string;
+  appName: string;
+};
 
 /**
  * Le client scanne le QR → choisit sa langue (pré-remplie) → écrit. Aucun compte, aucun e-mail :
  * une session "invité" Supabase est créée en arrière-plan.
  */
-export default function GuestStart({ token, hotelName, roomLabel, appName }: Props) {
-  const [lang, setLang] = useState("en");
+export default function GuestStart({ token, hotelName, roomLabel, initialLang, appName }: Props) {
+  const [lang, setLang] = useState(initialLang);
   const [name, setName] = useState("");
   const [status, setStatus] = useState<"idle" | "busy" | "error">("idle");
-
-  useEffect(() => setLang(guessLanguage("en")), []);
 
   const locale = uiLocale(lang);
   const t = useMemo(() => makeT(locale), [locale]);
