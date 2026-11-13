@@ -11,6 +11,7 @@ import NotificationsBanner from "@/components/NotificationsBanner";
 import { Paywall, TrialBanner } from "@/components/Billing";
 import type { RoomBilling } from "@/lib/billing";
 import { getLanguage } from "@/lib/languages";
+import { playChime } from "@/lib/sound";
 import type { Member, Message, Room } from "@/lib/types";
 
 type Pending = { tempId: string; kind: "text" | "audio"; text: string; failed?: boolean; paywall?: boolean; retry: () => void };
@@ -118,7 +119,9 @@ export default function ChatRoom({ room, initialMembers, initialMessages, userId
               const oldId = (payload.old as Partial<Message>).id;
               setMessages((prev) => prev.filter((m) => m.id !== oldId));
             } else {
-              upsertMessage(payload.new as Message);
+              const msg = payload.new as Message;
+              if (payload.eventType === "INSERT" && msg.sender_id !== userId) playChime("message");
+              upsertMessage(msg);
             }
           },
         )
@@ -126,7 +129,14 @@ export default function ChatRoom({ room, initialMembers, initialMessages, userId
           "postgres_changes",
           { event: "*", schema: "public", table: "room_members", filter: `room_id=eq.${room.id}` },
           (payload) => {
-            if (payload.eventType !== "DELETE") upsertMember(payload.new as Member);
+            if (payload.eventType === "DELETE") return;
+            const member = payload.new as Member;
+            if (payload.eventType === "INSERT" && member.user_id !== userId) {
+              playChime("join");
+              setToast(`🛎️ ${member.display_name || "Votre contact"} vient de rejoindre la conversation`);
+              setTimeout(() => setToast(""), 4000);
+            }
+            upsertMember(member);
           },
         )
         .subscribe((status) => {
@@ -147,7 +157,7 @@ export default function ChatRoom({ room, initialMembers, initialMessages, userId
       document.removeEventListener("visibilitychange", onVisible);
       if (channel) supabase.removeChannel(channel);
     };
-  }, [supabase, room.id, upsertMessage, upsertMember, resync]);
+  }, [supabase, room.id, userId, upsertMessage, upsertMember, resync]);
 
   // Défilement automatique vers le dernier message
   useEffect(() => {
@@ -217,6 +227,7 @@ export default function ChatRoom({ room, initialMembers, initialMessages, userId
       });
       if (!res.ok) return false;
       const { translation } = await res.json();
+      if (!translation) return true; // même langue : rien à afficher en plus
       setMessages((prev) =>
         prev.map((m) => (m.id === messageId ? { ...m, translations: { ...m.translations, [lang]: translation } } : m)),
       );

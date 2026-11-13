@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { translateText, type ContextLine } from "@/lib/ai/translate";
-import { isLanguage } from "@/lib/languages";
+import { hasLetters, isLanguage, sameLanguage } from "@/lib/languages";
 import type { Member, Message } from "@/lib/types";
 
 /**
@@ -16,6 +16,12 @@ export async function targetLanguagesFor(db: SupabaseClient, roomId: string, sen
     else langs.add(m.my_lang);
   }
   return [...langs];
+}
+
+/** Langues des autres participants (pour la détection de langue). */
+export async function recipientLanguages(db: SupabaseClient, roomId: string, senderId: string) {
+  const { data } = await db.from("room_members").select("user_id, my_lang").eq("room_id", roomId);
+  return (data ?? []).filter((m) => m.user_id !== senderId).map((m) => m.my_lang as string);
 }
 
 async function loadContext(db: SupabaseClient, message: Message): Promise<ContextLine[]> {
@@ -34,10 +40,24 @@ async function loadContext(db: SupabaseClient, message: Message): Promise<Contex
     .map((m) => ({ speaker: m.sender_id === message.sender_id ? "A" : "B", text: m.original_text.slice(0, 500) }));
 }
 
-/** Traduit un message dans les langues demandées et enregistre chaque traduction (→ temps réel). */
+/** Langue d'origine effective d'un message : celle détectée, sinon celle du profil de l'expéditeur. */
+export function messageLanguage(message: Pick<Message, "detected_lang" | "source_lang">) {
+  return message.detected_lang || message.source_lang;
+}
+
+/** Faut-il traduire ce message pour un lecteur de langue `lang` ? */
+export function needsTranslation(message: Pick<Message, "detected_lang" | "source_lang" | "original_text">, lang: string) {
+  return hasLetters(message.original_text) && !sameLanguage(messageLanguage(message), lang);
+}
+
+/**
+ * Traduit un message dans les langues demandées et enregistre chaque traduction (→ temps réel).
+ * Les langues identiques à celle du message sont ignorées : AUCUN appel à l'IA.
+ */
 export async function translateMessage(db: SupabaseClient, message: Message, langs: string[]) {
-  const targets = [...new Set(langs)].filter((l) => isLanguage(l) && l !== message.source_lang);
-  if (!targets.length || !message.original_text.trim()) return {} as Record<string, string>;
+  const from = messageLanguage(message);
+  const targets = [...new Set(langs)].filter((l) => isLanguage(l) && needsTranslation(message, l));
+  if (!targets.length) return {} as Record<string, string>;
 
   const context = await loadContext(db, message);
   const results: Record<string, string> = {};
@@ -47,7 +67,7 @@ export async function translateMessage(db: SupabaseClient, message: Message, lan
       try {
         const translated = await translateText({
           text: message.original_text,
-          from: message.source_lang,
+          from,
           to: lang,
           context,
         });

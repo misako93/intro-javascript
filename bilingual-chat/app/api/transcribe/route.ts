@@ -1,8 +1,8 @@
 import { NextResponse, after, type NextRequest } from "next/server";
 import { createClient, createTokenClient } from "@/lib/supabase/server";
 import { transcribeAudio } from "@/lib/ai/transcribe";
-import { getLanguage } from "@/lib/languages";
-import { targetLanguagesFor, translateMessage } from "@/lib/messages";
+import { recipientLanguages, targetLanguagesFor, translateMessage } from "@/lib/messages";
+import { detectMessageLanguage, whisperLanguageToIso } from "@/lib/detect-language";
 import { VOICE_BUCKET } from "@/lib/config";
 import { UUID_RE } from "@/lib/utils";
 import { afterSend, getRoomBilling } from "@/lib/billing";
@@ -105,16 +105,20 @@ export async function POST(request: NextRequest) {
     after(async () => {
       const db = createTokenClient(accessToken);
       try {
-        const text = await transcribeAudio(
-          new Blob([bytes], { type: mime }),
-          `voice.${ext}`,
-          getLanguage(me.my_lang).whisper,
-        );
+        // Whisper détecte lui-même la langue parlée (le client peut parler une autre langue que son profil).
+        const { text, language } = await transcribeAudio(new Blob([bytes], { type: mime }), `voice.${ext}`);
         if (!text) throw new Error("Aucune parole détectée");
+
+        const detected = detectMessageLanguage(
+          text,
+          me.my_lang,
+          await recipientLanguages(db, roomId, user.id),
+          whisperLanguageToIso(language),
+        );
 
         const { data: updated, error: updateError } = await db
           .from("messages")
-          .update({ original_text: text, status: "ready" })
+          .update({ original_text: text, detected_lang: detected, status: "ready" })
           .eq("id", message.id)
           .select()
           .single();

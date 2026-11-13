@@ -285,3 +285,9 @@ alter table public.push_subscriptions enable row level security;
 drop policy if exists "push: manage own" on public.push_subscriptions;
 create policy "push: manage own" on public.push_subscriptions
   for all to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+-- ═══════════════════════════════════════════════════════════════════
+--  DÉTECTION DE LANGUE : langue réellement utilisée dans le message
+--  (peut différer de la langue du profil ; sert à éviter les traductions inutiles)
+-- ═══════════════════════════════════════════════════════════════════
+alter table public.messages add column if not exists detected_lang text;

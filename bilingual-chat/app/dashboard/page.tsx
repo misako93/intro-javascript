@@ -2,6 +2,8 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import NewRoomForm from "@/components/NewRoomForm";
 import InstallBanner from "@/components/InstallBanner";
+import DashboardLive from "@/components/DashboardLive";
+import NotificationsBanner from "@/components/NotificationsBanner";
 import { PlanCard } from "@/components/Billing";
 import { ACTIVE_STATUSES, BILLING_ENABLED, FREE_MESSAGES_PER_ROOM } from "@/lib/billing";
 import { createClient } from "@/lib/supabase/server";
@@ -73,7 +75,11 @@ export default async function DashboardPage() {
         </form>
       </header>
 
+      <DashboardLive userId={user.id} />
       <InstallBanner />
+      <div className="-mx-4 mb-4 overflow-hidden sm:mx-0 sm:rounded-2xl">
+        <NotificationsBanner partnerName="un client" />
+      </div>
 
       <NewRoomForm defaultMyLang={lastMe?.my_lang} defaultTargetLang={lastMe?.target_lang} />
 

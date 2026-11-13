@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { getLanguage } from "@/lib/languages";
+import { getLanguage, hasLetters, sameLanguage } from "@/lib/languages";
 import { VOICE_BUCKET } from "@/lib/config";
 import { formatTime } from "@/lib/utils";
 import type { Message } from "@/lib/types";
@@ -48,9 +48,11 @@ function AudioPlayer({ path }: { path: string }) {
 
 export default function MessageBubble({ message, mine, wantedLang, onTranslate }: Props) {
   const [retry, setRetry] = useState<"idle" | "loading" | "failed">("idle");
-  const source = getLanguage(message.source_lang);
+  const fromLang = message.detected_lang || message.source_lang;
+  const source = getLanguage(fromLang);
   const target = getLanguage(wantedLang);
-  const needsTranslation = wantedLang !== message.source_lang;
+  // Même langue que le lecteur (ou rien à traduire) → on n'affiche que l'original.
+  const needsTranslation = hasLetters(message.original_text || "x") && !sameLanguage(fromLang, wantedLang);
   const translation = message.translations?.[wantedLang];
   const isReady = message.status === "ready" && message.original_text.trim() !== "";
 

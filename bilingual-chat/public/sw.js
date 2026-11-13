@@ -17,6 +17,9 @@ self.addEventListener("fetch", (event) => {
   event.respondWith(fetch(event.request).catch(() => caches.match(OFFLINE_URL)));
 });
 
+// Safari (iPhone/Mac) exige qu'une notification soit affichée pour CHAQUE push reçu.
+const IS_APPLE = /iPhone|iPad|Macintosh/.test(self.navigator.userAgent) && !/Chrome|CriOS|Android/.test(self.navigator.userAgent);
+
 self.addEventListener("push", (event) => {
   let data = {};
   try {
@@ -24,16 +27,33 @@ self.addEventListener("push", (event) => {
   } catch {
     data = { body: event.data ? event.data.text() : "" };
   }
+  const url = data.url || "/dashboard";
+  const isJoin = data.kind === "join";
+
   event.waitUntil(
-    self.registration.showNotification(data.title || "Nouveau message", {
-      body: data.body || "",
-      icon: "/icons/icon-192.png",
-      badge: "/icons/badge-96.png",
-      tag: data.tag, // une notification par conversation (les suivantes la remplacent)
-      renotify: Boolean(data.tag),
-      lang: data.lang,
-      data: { url: data.url || "/dashboard" },
-    }),
+    (async () => {
+      // La personne regarde déjà cette conversation : l'app joue son propre carillon,
+      // inutile d'ajouter une notification (sauf sur Safari, qui l'impose — elle sera alors silencieuse).
+      const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      const viewing = windows.some(
+        (w) => w.focused && w.visibilityState === "visible" && new URL(w.url).pathname === url,
+      );
+      if (viewing && !IS_APPLE) return;
+
+      await self.registration.showNotification(data.title || "Nouveau message", {
+        body: data.body || "",
+        icon: "/icons/icon-192.png",
+        badge: "/icons/badge-96.png",
+        tag: data.tag, // une notification par conversation (les suivantes la remplacent)…
+        renotify: Boolean(data.tag), // …mais chaque nouveau message sonne et vibre à nouveau
+        silent: viewing, // son et vibration du téléphone, sauf si l'écran affiche déjà la conversation
+        vibrate: isJoin ? [300, 120, 300, 120, 300] : [200, 100, 200],
+        requireInteraction: isJoin, // "Nouvelle conversation" reste affichée jusqu'à ce qu'on la touche
+        timestamp: Date.now(),
+        lang: data.lang,
+        data: { url },
+      });
+    })(),
   );
 });
 

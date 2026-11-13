@@ -22,6 +22,8 @@ export type Message = {
   kind: "text" | "audio";
   original_text: string;
   source_lang: string;
+  /** Langue réellement détectée dans le message (null pour les anciens messages) */
+  detected_lang: string | null;
   audio_path: string | null;
   translations: Record<string, string>;
   status: "processing" | "ready" | "error";

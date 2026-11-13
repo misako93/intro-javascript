@@ -45,7 +45,7 @@ export default function NotificationsBanner({ partnerName }: { partnerName: stri
           ? "Pour être prévenu·e des messages sur iPhone : Partager → « Sur l’écran d’accueil », puis ouvrez l’app depuis l’icône."
           : state === "denied"
             ? "Notifications bloquées. Autorisez-les dans les réglages du navigateur."
-            : `Soyez prévenu·e quand ${partnerName} vous répond.`}
+            : `Soyez prévenu·e (avec son) dès que ${partnerName} vous écrit, même app fermée.`}
       </p>
       {(state === "ask" || state === "busy") && (
         <button

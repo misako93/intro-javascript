@@ -4,6 +4,8 @@ Messagerie type WhatsApp où chacun écrit (ou parle) dans sa langue : l'interlo
 
 - 📱 **Application mobile installable** (Android + iPhone) avec notifications push — sans passer par les stores.
 - 💳 **Un seul abonnement par conversation** : si l'un des deux participants est abonné, les deux discutent en illimité.
+- 🛎️ **Pensé pour la réception d'un hôtel** : alerte sonore dès qu'un client ouvre une conversation ou écrit, même app en arrière-plan ; tableau de bord en direct.
+- 🧠 **Détection de langue** : si le client écrit déjà dans la langue du réceptionniste, le message s'affiche tel quel, sans appel à l'IA.
 
 **Stack :** Next.js 16 (App Router) · Tailwind CSS 4 · Supabase (Auth Magic Link/Google, Postgres, Realtime, Storage) · OpenAI Whisper · Claude / GPT-4o-mini · Stripe · Web Push
 
@@ -64,6 +66,12 @@ npx web-push generate-vapid-keys
 Ajoutez sur Vercel : `NEXT_PUBLIC_VAPID_PUBLIC_KEY` (Public Key), `VAPID_PRIVATE_KEY` (Private Key), `VAPID_SUBJECT` (`mailto:votre@email.com`) → **Redeploy**.
 
 La notification affiche le message **déjà traduit** dans la langue du destinataire.
+
+**Pour la réception de l'hôtel :**
+- 🛎️ « Nouvelle conversation » dès qu'un client ouvre le lien d'invitation : la notification **reste affichée** jusqu'à ce qu'on la touche (triple vibration).
+- 💬 Chaque nouveau message **sonne et vibre** (son de notification du téléphone), même app fermée ou écran verrouillé.
+- 🔔 App ouverte : un carillon retentit et le tableau de bord se met à jour en direct. Pas de double alerte si la conversation est déjà affichée à l'écran.
+- Le son exact dépend du téléphone (Android : Paramètres → Notifications → nom de l'app → Son ; iPhone : son de notification système). Le mode silencieux / « Ne pas déranger » du téléphone reste prioritaire.
 
 | | Android | iPhone |
 |---|---|---|
@@ -140,7 +148,8 @@ bilingual-chat/
 │   ├── Billing.tsx              # Bandeau d'essai, paywall, encart « Mon abonnement »
 │   ├── InstallBanner.tsx        # « Installer l'application » (Android / iPhone)
 │   ├── NotificationsBanner.tsx  # Activation des notifications
-│   ├── PwaSetup.tsx             # Enregistre le service worker
+│   ├── PwaSetup.tsx             # Enregistre le service worker + débloque le son
+│   ├── DashboardLive.tsx        # Tableau de bord en direct (réception)
 │   ├── NewRoomForm.tsx · LanguageSelect.tsx · LoginForm.tsx
 └── lib/
     ├── ai/transcribe.ts         # Appel Whisper
@@ -148,6 +157,8 @@ bilingual-chat/
     ├── messages.ts              # Quelles langues traduire + enregistrement
     ├── billing.ts · stripe.ts   # Règle « un abonné suffit » + synchro Stripe
     ├── push.ts · pwa.ts         # Notifications (serveur / navigateur)
+    ├── detect-language.ts       # Détection de la langue réelle d'un message
+    ├── sound.ts                 # Carillon d'alerte dans l'app
     ├── languages.ts             # 26 langues dont 8 dialectes arabes
     └── supabase/{client,server,proxy,admin}.ts
 public/
@@ -162,6 +173,7 @@ public/
 - Envoi → le message original apparaît instantanément chez les deux participants (Supabase Realtime) ; la traduction arrive ~1 s après, dans la même bulle.
 - Vocal → upload dans un bucket **privé** → transcription Whisper → traduction. Le lecteur audio reste disponible.
 - La traduction tient compte des 6 derniers messages (genre, pronoms, argot).
+- **Pas de traduction inutile** : avant d'appeler l'IA, la langue réelle du message est détectée (localement et gratuitement pour le texte avec `tinyld`, par Whisper pour les vocaux). Si elle est identique à celle du destinataire — ex. un client arabophone qui écrit en français à une réception francophone — seul l'original est affiché. Les messages sans lettres (👍, numéro de chambre) ne sont jamais traduits. Les mots très courts et ambigus (« oui », « ok ») sont rapprochés des langues de la conversation pour éviter les erreurs.
 - Si une traduction n'arrive pas, l'app la redemande automatiquement ; un bouton « Réessayer » apparaît en dernier recours.
 - Sécurité : chaque table est protégée par RLS — seuls les 2 membres d'un salon peuvent lire ses messages et écouter ses vocaux. Le paywall est vérifié côté serveur, et seul le webhook Stripe signé peut activer un abonnement. Les clés IA, Stripe et `service_role` restent côté serveur.
 

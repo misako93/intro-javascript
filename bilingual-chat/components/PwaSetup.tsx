@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import type { InstallPromptEvent } from "@/lib/pwa";
+import { unlockAudio } from "@/lib/sound";
 
 /** Enregistre le service worker et garde de côté l'invite d'installation Android. */
 export default function PwaSetup() {
@@ -18,9 +19,14 @@ export default function PwaSetup() {
       window.__installPrompt = null;
       window.dispatchEvent(new Event("installprompt-ready"));
     };
+    // Débloque le son des alertes au premier toucher de l'écran
+    window.addEventListener("pointerdown", unlockAudio, { passive: true });
+    window.addEventListener("keydown", unlockAudio);
     window.addEventListener("beforeinstallprompt", onPrompt);
     window.addEventListener("appinstalled", onInstalled);
     return () => {
+      window.removeEventListener("pointerdown", unlockAudio);
+      window.removeEventListener("keydown", unlockAudio);
       window.removeEventListener("beforeinstallprompt", onPrompt);
       window.removeEventListener("appinstalled", onInstalled);
     };

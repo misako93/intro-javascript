@@ -1,7 +1,8 @@
 import { NextResponse, after, type NextRequest } from "next/server";
 import { createClient, createTokenClient } from "@/lib/supabase/server";
 import { isLanguage } from "@/lib/languages";
-import { targetLanguagesFor, translateMessage } from "@/lib/messages";
+import { needsTranslation, recipientLanguages, targetLanguagesFor, translateMessage } from "@/lib/messages";
+import { detectMessageLanguage } from "@/lib/detect-language";
 import { UUID_RE } from "@/lib/utils";
 import { afterSend, getRoomBilling } from "@/lib/billing";
 import { notifyRoom } from "@/lib/push";
@@ -41,6 +42,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "paywall", billing }, { status: 402 });
     }
 
+    // Même langue que le lecteur : rien à traduire, on n'appelle pas l'IA.
+    if (!needsTranslation(message as Message, lang)) {
+      return NextResponse.json({ lang, translation: null, skipped: true });
+    }
+
     const result = await translateMessage(supabase, message as Message, [lang]);
     if (!result[lang]) return NextResponse.json({ error: "La traduction a échoué" }, { status: 502 });
     return NextResponse.json({ lang, translation: result[lang] });
@@ -76,6 +82,8 @@ export async function POST(request: NextRequest) {
       kind: "text",
       original_text: text,
       source_lang: me.my_lang,
+      // Détection locale (instantanée, gratuite) de la langue réellement utilisée
+      detected_lang: detectMessageLanguage(text, me.my_lang, await recipientLanguages(supabase, roomId, user.id)),
       status: "ready",
     })
     .select()

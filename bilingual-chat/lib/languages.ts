@@ -51,3 +51,31 @@ export function getLanguage(code: string | null | undefined): Language {
 export function isLanguage(code: unknown): code is string {
   return typeof code === "string" && BY_CODE.has(code);
 }
+
+/** "ar-EG" → "ar" */
+export function baseOf(code: string) {
+  return code.split("-")[0];
+}
+
+/**
+ * Deux langues sont "identiques" (= pas besoin de traduire) si elles ont le même code,
+ * ou la même langue de base quand l'une des deux n'a pas de dialecte précis.
+ * Ex. : fr = fr ✓ · ar = ar-EG ✓ · ar-EG ≠ ar-MA (dialectes choisis explicitement) · fr ≠ en.
+ */
+export function sameLanguage(a: string | null | undefined, b: string | null | undefined) {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  return baseOf(a) === baseOf(b) && (a === baseOf(a) || b === baseOf(b));
+}
+
+/** Un message sans aucune lettre (emoji, chiffres, "👍") n'a rien à traduire. */
+export function hasLetters(text: string) {
+  return /\p{L}/u.test(text);
+}
+
+/** Code ISO-639-1 ("fr", "ar"…) → code de l'application, si la langue est prise en charge. */
+export function fromIso(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const code = iso.toLowerCase();
+  return BY_CODE.has(code) ? code : null;
+}
