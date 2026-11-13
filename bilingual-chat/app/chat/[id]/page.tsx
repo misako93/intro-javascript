@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { UUID_RE } from "@/lib/utils";
 import { getRoomBilling } from "@/lib/billing";
 import { getParticipants } from "@/lib/participants";
-import { uiLocale } from "@/lib/i18n";
+import { guestLocale } from "@/lib/i18n";
 import { PRICE_LABEL } from "@/lib/config";
 import type { HotelContext, Message, Room } from "@/lib/types";
 
@@ -35,7 +35,7 @@ export default async function ChatPage({ params }: { params: Promise<{ id: strin
   const billing = await getRoomBilling(supabase, id);
 
   // Le client d'un hôtel voit l'interface dans SA langue ; le personnel, en français.
-  const locale = hotel && !hotel.is_staff ? uiLocale(me.my_lang) : "fr";
+  const locale = hotel && !hotel.is_staff ? guestLocale(me.my_lang) : "fr";
 
   return (
     <I18nProvider locale={locale}>

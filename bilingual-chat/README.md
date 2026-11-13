@@ -116,6 +116,8 @@ npm run dev                  # → http://localhost:3000
 
 **Parcours du client :** il scanne → la page s'ouvre **directement dans la langue de son téléphone**, dès le premier affichage. Les 26 langues de l'application ont leur interface (arabe avec le dialecte du pays : Qatar/Koweït → arabe du Golfe, Égypte → égyptien… ; persan, ourdou, bengali, malais, tagalog, swahili, chinois, russe…). Langue du téléphone non prise en charge → anglais. → il écrit ou envoie un vocal → la réception reçoit « 🛎️ Nouveau client — Ahmed · Ch. 204 » traduit en français. S'il rescanne, il retrouve sa conversation. Il n'a jamais rien à payer et ne voit jamais d'écran d'abonnement.
 
+> 🇫🇷 **Pendant le développement, l'écran du client est en français** (`NEXT_PUBLIC_GUEST_UI_LANGUAGE=fr`, valeur par défaut). Au lancement, passez-le à `auto` pour l'afficher dans la langue du téléphone du client. Dans les deux cas, la langue du client est pré-sélectionnée et ses messages sont traduits.
+
 **Équipe :** tous les réceptionnistes voient toutes les conversations de l'hôtel et peuvent répondre. Un message de client sonne chez toute l'équipe ; une réponse de la réception n'est envoyée qu'au client. Le responsable peut retirer un membre : il perd l'accès immédiatement.
 
 **Abonnement :** pour un hôtel, l'abonnement du responsable couvre toute l'équipe et tous les clients ; l'essai gratuit est de `FREE_MESSAGES_PER_HOTEL` messages (200 par défaut) pour l'ensemble de l'hôtel.

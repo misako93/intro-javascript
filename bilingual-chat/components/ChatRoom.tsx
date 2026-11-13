@@ -11,6 +11,7 @@ import { InviteButton, InviteCard } from "@/components/InviteButton";
 import NotificationsBanner from "@/components/NotificationsBanner";
 import { Paywall, TrialBanner } from "@/components/Billing";
 import { useT } from "@/components/I18n";
+import { GUEST_UI_AUTO } from "@/lib/i18n";
 import type { RoomBilling } from "@/lib/billing";
 import { getLanguage } from "@/lib/languages";
 import { playChime } from "@/lib/sound";
@@ -310,7 +311,7 @@ export default function ChatRoom({ room, hotel, initialMembers, initialMessages,
           <div className="mx-auto max-w-3xl px-3 pb-3">
             <label className="flex flex-col text-xs font-medium text-slate-500">
               {t("my_language")}
-              <LanguageSelect native value={me.my_lang} onChange={(v) => updateLanguages({ my_lang: v })} className="mt-1 w-full py-2 text-sm" aria-label={t("my_language")} />
+              <LanguageSelect native={GUEST_UI_AUTO} value={me.my_lang} onChange={(v) => updateLanguages({ my_lang: v })} className="mt-1 w-full py-2 text-sm" aria-label={t("my_language")} />
             </label>
           </div>
         ) : mode === "staff" ? (
@@ -421,7 +422,7 @@ export default function ChatRoom({ room, hotel, initialMembers, initialMessages,
           <Composer
             onSendText={sendText}
             onSendAudio={sendAudio}
-            placeholder={mode === "guest" ? t("placeholder", { lang: myLang.native }) : `Écrivez en ${myLang.label}…`}
+            placeholder={mode === "guest" ? t("placeholder", { lang: GUEST_UI_AUTO ? myLang.native : myLang.label }) : `Écrivez en ${myLang.label}…`}
           />
         ) : mode === "guest" ? (
           // Le client ne voit jamais d'écran de paiement : c'est l'hôtel qui s'abonne.

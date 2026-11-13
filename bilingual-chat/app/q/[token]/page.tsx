@@ -2,7 +2,7 @@ import Link from "next/link";
 import { headers } from "next/headers";
 import GuestStart from "@/components/GuestStart";
 import { parseAcceptLanguage, pickLanguage } from "@/lib/languages";
-import { makeT, RTL_LOCALES, uiLocale } from "@/lib/i18n";
+import { guestLocale, makeT, RTL_LOCALES } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase/server";
 import { APP_NAME } from "@/lib/config";
 
@@ -18,7 +18,7 @@ export default async function HotelQrPage({ params }: { params: Promise<{ token:
   // Langue du téléphone, connue dès la première requête (en-tête Accept-Language) :
   // la page s'affiche directement dans la bonne langue, sans passer par l'anglais.
   const phoneLang = pickLanguage(parseAcceptLanguage((await headers()).get("accept-language")));
-  const locale = uiLocale(phoneLang);
+  const locale = guestLocale(phoneLang);
 
   if (!entry) {
     return (

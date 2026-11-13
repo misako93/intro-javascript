@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import LanguageSelect from "@/components/LanguageSelect";
-import { makeT, RTL_LOCALES, uiLocale } from "@/lib/i18n";
+import { GUEST_UI_AUTO, guestLocale, makeT, RTL_LOCALES } from "@/lib/i18n";
 
 type Props = {
   token: string;
@@ -23,7 +23,7 @@ export default function GuestStart({ token, hotelName, roomLabel, initialLang, a
   const [name, setName] = useState("");
   const [status, setStatus] = useState<"idle" | "busy" | "error">("idle");
 
-  const locale = uiLocale(lang);
+  const locale = guestLocale(lang);
   const t = useMemo(() => makeT(locale), [locale]);
   const dir = RTL_LOCALES.has(locale) ? "rtl" : "ltr";
 
@@ -68,7 +68,7 @@ export default function GuestStart({ token, hotelName, roomLabel, initialLang, a
         <form onSubmit={start} className="space-y-4 rounded-3xl bg-white p-6 shadow-xl shadow-emerald-900/5 ring-1 ring-slate-100">
           <label className="block text-sm font-medium text-slate-700">
             {t("your_language")}
-            <LanguageSelect native value={lang} onChange={setLang} className="mt-1 w-full py-3" aria-label={t("your_language")} />
+            <LanguageSelect native={GUEST_UI_AUTO} value={lang} onChange={setLang} className="mt-1 w-full py-3" aria-label={t("your_language")} />
           </label>
           <label className="block text-sm font-medium text-slate-700">
             {t("your_name")}

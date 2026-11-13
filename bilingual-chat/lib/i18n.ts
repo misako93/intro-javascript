@@ -677,6 +677,19 @@ const sw: Dict = {
 
 const DICTS: Record<string, Dict> = { fr, en, ar, es, de, it, pt, tr, ru, zh, ur, hi, id, fa, nl, bn, ms, tl, sw };
 
+/**
+ * Langue de l'écran du CLIENT de l'hôtel.
+ * - NEXT_PUBLIC_GUEST_UI_LANGUAGE=fr (par défaut pendant le développement) : tout en français ;
+ * - NEXT_PUBLIC_GUEST_UI_LANGUAGE=auto : dans la langue du téléphone du client (26 langues prêtes).
+ * La traduction des MESSAGES fonctionne dans les deux cas.
+ */
+const GUEST_UI_LANGUAGE = (process.env.NEXT_PUBLIC_GUEST_UI_LANGUAGE || "fr").trim();
+export const GUEST_UI_AUTO = GUEST_UI_LANGUAGE === "auto";
+
+export function guestLocale(langCode: string | null | undefined): string {
+  return GUEST_UI_AUTO ? uiLocale(langCode) : uiLocale(GUEST_UI_LANGUAGE);
+}
+
 /** Langues d'interface disponibles (ex. "ar-EG" → "ar", "ms" → "en"). */
 export function uiLocale(langCode: string | null | undefined): string {
   const base = baseOf(langCode ?? "en");
