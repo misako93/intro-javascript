@@ -2,7 +2,7 @@
  * Transcription d'un message vocal (Whisper), via n'importe quel service compatible OpenAI :
  * - OpenAI (par défaut) : whisper-1
  * - Groq (moins cher, très rapide) : TRANSCRIBE_BASE_URL=https://api.groq.com/openai/v1,
- *   TRANSCRIBE_MODEL=whisper-large-v3-turbo
+ *   TRANSCRIBE_MODEL=whisper-large-v3 (plus juste que -turbo)
  * Sans `language`, le service détecte la langue parlée et la renvoie (ex. "french").
  * NB : OpenRouter ne fait pas de transcription audio → il faut l'une de ces deux options.
  */
