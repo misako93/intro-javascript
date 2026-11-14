@@ -38,7 +38,7 @@ export default async function DashboardPage() {
 
   const guest = Boolean(user.is_anonymous); // client d'hôtel (session invité, sans compte)
 
-  const [{ data }, { data: subscription }, hotel] = await Promise.all([
+  const [{ data }, { data: subscription }, hotel, { data: partner }] = await Promise.all([
     supabase
       .from("rooms")
       .select(
@@ -52,6 +52,7 @@ export default async function DashboardPage() {
       .eq("user_id", user.id)
       .maybeSingle(),
     guest ? Promise.resolve(null) : getMyHotel(supabase, user.id),
+    supabase.from("partners").select("user_id").eq("user_id", user.id).maybeSingle(),
   ]);
   const subscribed =
     Boolean(subscription && ACTIVE_STATUSES.includes(subscription.status)) &&
@@ -119,6 +120,17 @@ export default async function DashboardPage() {
             langue, toute l’équipe reçoit la traduction. →
           </Link>
         )
+      )}
+
+      {partner && (
+        <Link href="/partenaire" className="mb-4 flex items-center gap-3 rounded-3xl bg-white p-4 shadow-sm ring-1 ring-slate-100 hover:bg-slate-50">
+          <span className="text-3xl">🤝</span>
+          <span className="flex-1">
+            <span className="block font-semibold">Espace partenaire</span>
+            <span className="text-sm text-slate-500">Mes hôtels, mes commissions</span>
+          </span>
+          <span className="text-slate-400">→</span>
+        </Link>
       )}
 
       {!guest && <NewRoomForm defaultMyLang={lastMe?.my_lang} defaultTargetLang={lastMe?.target_lang} />}

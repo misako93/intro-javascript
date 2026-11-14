@@ -29,6 +29,13 @@ Schéma complet et idempotent : `supabase/schema.sql`. Variables : `.env.example
 Règles de sécurité Postgres (RLS) testées avec 5 utilisateurs ; parcours client complet dans un navigateur (téléphone en arabe et en persan) ; paywall et webhook Stripe signé ; notifications push réellement chiffrées et reçues ; assistant IA (3 scénarios) avec une fausse IA ; branchement OpenRouter + Groq.
 **Jamais testé avec les vrais services** (Supabase, OpenRouter, Groq, Stripe) ni sur un vrai téléphone : c'est la première chose à faire sur le PC.
 
+## Espace partenaire (apporteurs d'affaires) — 14 nov. 2026
+- `/partenaire` : le partenaire s'inscrit, inscrit un hôtel (→ QR + lien WhatsApp), suit le statut (pas inscrit / essai / abonné + forfait / retard / résilié) et ses commissions.
+- `/rejoindre/[token]` : page que le gérant ouvre en scannant le QR ; il crée son espace hôtel, relié au partenaire.
+- Commission : 20 % par défaut (`partners.commission_percent`, modifiable par partenaire), sur chaque facture payée (webhook `invoice.paid`).
+- Compte bancaire : Stripe Connect Express (le RIB reste chez Stripe). Versement : `POST /api/partners/payouts` avec `CRON_SECRET`, une fois par mois (jour à choisir), verse les commissions des mois précédents.
+- À faire au branchement de Stripe : activer Connect, vérifier avec Stripe les versements vers l'Égypte (contrat « recipient »), ajouter `invoice.paid` au webhook, programmer la tâche mensuelle.
+
 ## Prochaines étapes, dans l'ordre
 1. **Sur le PC** : `git clone`, `git checkout claude/bilingual-chat-saas-app-3l1m16`, `cd bilingual-chat`, `npm install`, `cp .env.example .env.local`, remplir les clés **dans le fichier** (jamais dans la conversation).
 2. Créer le projet Supabase (région Francfort), exécuter `supabase/schema.sql`, activer « Allow anonymous sign-ins », renseigner les URL de redirection.

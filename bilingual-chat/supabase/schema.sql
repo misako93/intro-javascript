@@ -575,3 +575,192 @@ create policy "messages: members can send" on public.messages
 -- L'expéditeur ne peut modifier que ces colonnes de son message (pas is_ai, pas la conversation).
 revoke update on public.messages from authenticated, anon;
 grant  update (original_text, detected_lang, status, error) on public.messages to authenticated;
+
+-- ═══════════════════════════════════════════════════════════════════
+--  ESPACE PARTENAIRE (apporteurs d'affaires)
+--  Le partenaire inscrit un hôtel → lien/QR d'invitation → le gérant crée
+--  son espace → l'hôtel est relié au partenaire. Chaque facture payée par
+--  l'hôtel crée une commission ; un versement mensuel les paie (Stripe Connect).
+-- ═══════════════════════════════════════════════════════════════════
+create table if not exists public.partners (
+  user_id             uuid primary key references auth.users(id) on delete cascade,
+  display_name        text not null default '',
+  phone               text not null default '',
+  commission_percent  numeric(5,2) not null default 20 check (commission_percent between 0 and 100),
+  stripe_account_id   text unique,            -- compte Stripe Connect (le RIB est chez Stripe, jamais chez nous)
+  payouts_enabled     boolean not null default false,
+  bank_label          text,                   -- ex. "···· 1234", pour l'affichage
+  created_at          timestamptz not null default now()
+);
+
+alter table public.hotels add column if not exists partner_id uuid references public.partners(user_id) on delete set null;
+create index if not exists hotels_partner_idx on public.hotels(partner_id);
+
+create table if not exists public.hotel_invites (
+  id             uuid primary key default gen_random_uuid(),
+  partner_id     uuid not null references public.partners(user_id) on delete cascade,
+  token          text not null unique default replace(gen_random_uuid()::text, '-', ''),
+  hotel_name     text not null,
+  contact_name   text not null default '',
+  contact_phone  text not null default '',
+  hotel_id       uuid references public.hotels(id) on delete set null,
+  created_at     timestamptz not null default now(),
+  claimed_at     timestamptz
+);
+create index if not exists hotel_invites_partner_idx on public.hotel_invites(partner_id);
+
+create table if not exists public.partner_payouts (
+  id                  uuid primary key default gen_random_uuid(),
+  partner_id          uuid not null references public.partners(user_id) on delete cascade,
+  amount              integer not null,        -- en centimes
+  currency            text not null default 'eur',
+  stripe_transfer_id  text,
+  status              text not null default 'paid' check (status in ('paid', 'failed')),
+  error               text,
+  created_at          timestamptz not null default now()
+);
+
+create table if not exists public.partner_commissions (
+  id                 uuid primary key default gen_random_uuid(),
+  partner_id         uuid not null references public.partners(user_id) on delete cascade,
+  hotel_id           uuid references public.hotels(id) on delete set null,
+  hotel_name         text not null default '',
+  stripe_invoice_id  text not null unique,     -- une commission par facture payée (idempotent)
+  invoice_amount     integer not null,         -- montant HT payé par l'hôtel, en centimes
+  percent            numeric(5,2) not null,
+  amount             integer not null,         -- commission, en centimes
+  currency           text not null default 'eur',
+  status             text not null default 'pending' check (status in ('pending', 'paid', 'canceled')),
+  payout_id          uuid references public.partner_payouts(id) on delete set null,
+  created_at         timestamptz not null default now()
+);
+create index if not exists partner_commissions_partner_idx on public.partner_commissions(partner_id, status);
+
+-- Montant du forfait, pour afficher "99 € / mois" (prêt pour plusieurs forfaits).
+alter table public.subscriptions add column if not exists plan_amount   integer;
+alter table public.subscriptions add column if not exists plan_currency text;
+alter table public.subscriptions add column if not exists plan_interval text;
+
+alter table public.partners            enable row level security;
+alter table public.hotel_invites       enable row level security;
+alter table public.partner_commissions enable row level security;
+alter table public.partner_payouts     enable row level security;
+
+drop policy if exists "partners: read own" on public.partners;
+create policy "partners: read own" on public.partners
+  for select to authenticated using (user_id = auth.uid());
+drop policy if exists "partners: update own" on public.partners;
+create policy "partners: update own" on public.partners
+  for update to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
+-- Le partenaire ne change que son nom et son téléphone (pas son taux, pas son compte bancaire).
+revoke insert, update, delete on public.partners from authenticated, anon;
+grant  update (display_name, phone) on public.partners to authenticated;
+
+drop policy if exists "hotel_invites: partner reads own" on public.hotel_invites;
+create policy "hotel_invites: partner reads own" on public.hotel_invites
+  for select to authenticated using (partner_id = auth.uid());
+drop policy if exists "hotel_invites: partner creates" on public.hotel_invites;
+create policy "hotel_invites: partner creates" on public.hotel_invites
+  for insert to authenticated
+  with check (partner_id = auth.uid() and hotel_id is null and claimed_at is null
+              and exists (select 1 from public.partners where user_id = auth.uid()));
+drop policy if exists "hotel_invites: partner deletes unused" on public.hotel_invites;
+create policy "hotel_invites: partner deletes unused" on public.hotel_invites
+  for delete to authenticated using (partner_id = auth.uid() and claimed_at is null);
+revoke update on public.hotel_invites from authenticated, anon;
+
+drop policy if exists "partner_commissions: read own" on public.partner_commissions;
+create policy "partner_commissions: read own" on public.partner_commissions
+  for select to authenticated using (partner_id = auth.uid());
+drop policy if exists "partner_payouts: read own" on public.partner_payouts;
+create policy "partner_payouts: read own" on public.partner_payouts
+  for select to authenticated using (partner_id = auth.uid());
+revoke insert, update, delete on public.partner_commissions, public.partner_payouts from authenticated, anon;
+
+-- Devenir partenaire (compte e-mail obligatoire, pas une session invité).
+create or replace function public.become_partner(p_display_name text, p_phone text)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+begin
+  if auth.uid() is null then raise exception 'not_authenticated'; end if;
+  if public.is_anonymous() then raise exception 'anonymous_not_allowed'; end if;
+  insert into partners (user_id, display_name, phone)
+  values (auth.uid(), left(trim(coalesce(p_display_name, '')), 60), left(trim(coalesce(p_phone, '')), 30))
+  on conflict (user_id) do update set display_name = excluded.display_name, phone = excluded.phone;
+end $$;
+
+-- Les hôtels du partenaire avec leur statut (le partenaire ne voit pas les conversations).
+create or replace function public.partner_hotels()
+returns table (
+  invite_id uuid, token text, hotel_name text, contact_name text, contact_phone text,
+  invited_at timestamptz, claimed_at timestamptz, hotel_id uuid,
+  sub_status text, plan_amount integer, plan_currency text, plan_interval text, current_period_end timestamptz
+)
+language sql stable security definer set search_path = public
+as $$
+  select i.id, i.token, coalesce(h.name, i.hotel_name), i.contact_name, i.contact_phone,
+         i.created_at, i.claimed_at, h.id,
+         s.status, s.plan_amount, s.plan_currency, s.plan_interval, s.current_period_end
+  from hotel_invites i
+  left join hotels h on h.id = i.hotel_id
+  left join subscriptions s on s.user_id = h.owner_id
+  where i.partner_id = auth.uid()
+  order by i.created_at desc;
+$$;
+
+-- Infos publiques d'une invitation (page vue par le gérant, avant connexion).
+create or replace function public.get_hotel_invite(p_token text)
+returns table (hotel_name text, partner_name text, claimed boolean, is_partner boolean)
+language sql stable security definer set search_path = public
+as $$
+  select i.hotel_name, p.display_name, i.claimed_at is not null, i.partner_id = auth.uid()
+  from hotel_invites i join partners p on p.user_id = i.partner_id
+  where i.token = p_token;
+$$;
+
+-- Le gérant accepte l'invitation : crée son hôtel relié au partenaire
+-- (ou relie l'hôtel qu'il a déjà, s'il n'a pas encore de partenaire).
+create or replace function public.claim_hotel_invite(p_token text, p_name text, p_lang text, p_display_name text)
+returns uuid
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_inv   hotel_invites;
+  v_hotel uuid;
+begin
+  if auth.uid() is null then raise exception 'not_authenticated'; end if;
+  if public.is_anonymous() then raise exception 'anonymous_not_allowed'; end if;
+
+  select * into v_inv from hotel_invites where token = p_token for update;
+  if not found then raise exception 'invalid_invite'; end if;
+  if v_inv.partner_id = auth.uid() then raise exception 'own_invite'; end if;
+  if v_inv.claimed_at is not null then
+    if exists (select 1 from hotels where id = v_inv.hotel_id and owner_id = auth.uid()) then
+      return v_inv.hotel_id;
+    end if;
+    raise exception 'already_claimed';
+  end if;
+
+  select id into v_hotel from hotels where owner_id = auth.uid() order by created_at limit 1;
+  if v_hotel is not null then
+    update hotels set partner_id = v_inv.partner_id where id = v_hotel and partner_id is null;
+    if not found then raise exception 'hotel_has_partner'; end if;
+  else
+    insert into hotels (name, owner_id, default_lang, partner_id)
+    values (left(coalesce(nullif(trim(p_name), ''), v_inv.hotel_name), 80), auth.uid(), left(p_lang, 10), v_inv.partner_id)
+    returning id into v_hotel;
+    insert into hotel_staff (hotel_id, user_id, role, display_name, my_lang)
+    values (v_hotel, auth.uid(), 'owner', left(coalesce(p_display_name, ''), 60), left(p_lang, 10));
+  end if;
+
+  update hotel_invites set hotel_id = v_hotel, claimed_at = now() where id = v_inv.id;
+  return v_hotel;
+end $$;
+
+revoke execute on function public.claim_hotel_invite(text, text, text, text) from public, anon;
+revoke execute on function public.become_partner(text, text) from public, anon;
+revoke execute on function public.partner_hotels() from public, anon;
+grant  execute on function public.claim_hotel_invite(text, text, text, text) to authenticated;
+grant  execute on function public.become_partner(text, text) to authenticated;
+grant  execute on function public.partner_hotels() to authenticated;

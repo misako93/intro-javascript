@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import type Stripe from "stripe";
-import { stripe, syncSubscription } from "@/lib/stripe";
+import { recordPartnerCommission, stripe, syncSubscription } from "@/lib/stripe";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
@@ -8,7 +8,7 @@ export const runtime = "nodejs";
 /**
  * Webhook Stripe : met à jour la table "subscriptions".
  * Événements à activer dans Stripe : checkout.session.completed,
- * customer.subscription.created / updated / deleted.
+ * customer.subscription.created / updated / deleted, invoice.paid (commissions partenaires).
  */
 export async function POST(request: NextRequest) {
   const signature = request.headers.get("stripe-signature");
@@ -39,6 +39,9 @@ export async function POST(request: NextRequest) {
       case "customer.subscription.updated":
       case "customer.subscription.deleted":
         await syncSubscription(admin, event.data.object);
+        break;
+      case "invoice.paid":
+        await recordPartnerCommission(admin, event.data.object);
         break;
     }
   } catch (err) {
