@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Offline</title>
+<style>
+  body{margin:0;min-height:100dvh;display:grid;place-items:center;font-family:system-ui,-apple-system,sans-serif;background:#f8fafc;color:#0f172a;text-align:center;padding:24px}
+  img{width:72px;height:72px} h1{font-size:20px;margin:16px 0 8px} p{color:#64748b;margin:0 0 24px}
+  button{background:#059669;color:#fff;border:0;border-radius:999px;padding:14px 24px;font-size:16px;font-weight:600}
+</style>
+</head>
+<body>
+  <div>
+    <img src="/icons/icon-192.png" alt="" />
+    <h1 id="t">No internet connection</h1>
+    <p id="d">Your messages will appear as soon as the connection is back.</p>
+    <button id="b" onclick="location.reload()">Retry</button>
+  </div>
+  <script>
+    // Page hors-ligne dans la langue du téléphone (quelques langues courantes, anglais sinon)
+    var T = {
+      fr: ["Pas de connexion internet", "Vos messages s’afficheront dès que la connexion reviendra.", "Réessayer"],
+      ar: ["لا يوجد اتصال بالإنترنت", "ستظهر رسائلك فور عودة الاتصال.", "إعادة المحاولة"],
+      es: ["Sin conexión a internet", "Sus mensajes aparecerán en cuanto vuelva la conexión.", "Reintentar"],
+      de: ["Keine Internetverbindung", "Ihre Nachrichten erscheinen, sobald die Verbindung zurück ist.", "Erneut versuchen"],
+      zh: ["无网络连接", "网络恢复后，您的消息会立即显示。", "重试"],
+      ru: ["Нет подключения к интернету", "Сообщения появятся, как только связь восстановится.", "Повторить"],
+      tr: ["İnternet bağlantısı yok", "Bağlantı geri geldiğinde mesajlarınız görünecek.", "Tekrar dene"],
+      ur: ["انٹرنیٹ کنکشن نہیں", "کنکشن بحال ہوتے ہی آپ کے پیغامات نظر آئیں گے۔", "دوبارہ کوشش کریں"],
+      id: ["Tidak ada koneksi internet", "Pesan Anda akan muncul begitu koneksi kembali.", "Coba lagi"]
+    };
+    var l = (navigator.language || "en").slice(0, 2).toLowerCase(), t = T[l];
+    if (t) {
+      document.documentElement.lang = l;
+      if (l === "ar" || l === "ur") document.documentElement.dir = "rtl";
+      document.getElementById("t").textContent = t[0];
+      document.getElementById("d").textContent = t[1];
+      document.getElementById("b").textContent = t[2];
+    }
+  </script>
+</body>
+</html>
